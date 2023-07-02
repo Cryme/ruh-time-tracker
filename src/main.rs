@@ -74,7 +74,7 @@ impl MyApp {
 
                     let mut text = RichText::new(&r_project.name);
 
-                    if &r_project.id == &current_id {
+                    if r_project.id == current_id {
                         text = text.strong();
                     }
 
@@ -117,7 +117,7 @@ impl MyApp {
 
                     let mut text = RichText::new(&r_subject.name);
 
-                    if &r_subject.id == &current_id {
+                    if r_subject.id == current_id {
                         text = text.strong();
                     }
 
@@ -288,7 +288,7 @@ impl eframe::App for MyApp {
 
                             if ui.button("Add").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.backend.add_project(&*self.current_name);
+                                self.backend.add_project(&self.current_name);
                                 self.current_name = "".to_string();
                             }
                         });
@@ -309,7 +309,7 @@ impl eframe::App for MyApp {
 
                             if ui.button("Add").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.backend.add_subject(&*self.current_name);
+                                self.backend.add_subject(&self.current_name);
                                 self.current_name = "".to_string();
                             }
                         });

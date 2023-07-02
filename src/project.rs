@@ -51,8 +51,8 @@ impl Backend {
         if config.exists() {
             if let Ok(mut file) = File::open("./data.ron") {
                 let mut contents = String::new();
-                if let Ok(_) = file.read_to_string(&mut contents) {
-                    if let Ok(data) = ron::from_str(&*contents) {
+                if file.read_to_string(&mut contents).is_ok() {
+                    if let Ok(data) = ron::from_str(&contents) {
                         return data;
                     }
                 }
@@ -110,7 +110,7 @@ impl Backend {
             }
         }
 
-        return "None".to_string();
+        "None".to_string()
     }
 
     pub fn add_project(&mut self, name: &str) {

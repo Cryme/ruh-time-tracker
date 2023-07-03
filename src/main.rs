@@ -2,14 +2,17 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-mod project;
+mod backend;
+mod history;
 
-use crate::project::{Backend, WorkingMode};
+use crate::backend::{Backend, WorkingMode};
 use eframe::egui;
 use eframe::egui::{Align, Layout, RichText, Ui, Visuals};
 use std::ops::Rem;
 use std::time::Duration;
 use uuid::Uuid;
+
+const SAVE_PERIOD_SECONDS: u64 = 10_000;
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -33,7 +36,15 @@ fn main() -> Result<(), eframe::Error> {
 struct MyApp {
     backend: Backend,
     current_dialog: CurrentDialog,
-    current_name: String,
+    current_label: String,
+    dialog_buffer: String,
+    current_display_mode: DisplayMode,
+}
+
+#[derive(Copy, Clone)]
+enum DisplayMode {
+    Full,
+    Minimal
 }
 
 enum CurrentDialog {
@@ -46,14 +57,16 @@ impl MyApp {
     fn init(cc: &eframe::CreationContext<'_>) -> Self {
         let context = cc.egui_ctx.clone();
         std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(1000));
+            std::thread::sleep(Duration::from_millis(SAVE_PERIOD_SECONDS));
             context.request_repaint();
         });
 
         Self {
             backend: Backend::load(),
+            current_display_mode: DisplayMode::Full,
             current_dialog: CurrentDialog::None,
-            current_name: "".to_string(),
+            dialog_buffer: "".to_string(),
+            current_label: "".to_string(),
         }
     }
 
@@ -98,14 +111,12 @@ impl MyApp {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
-        let Some(current_project) = &self.backend.current_project else {
+        let Some(current_project) = self.backend.current_project.clone() else {
             return;
         };
 
         ui.vertical(|ui| {
-            let project = current_project.lock().unwrap();
-
-            for subject in &project.subjects {
+            for subject in &current_project.lock().unwrap().subjects {
                 ui.horizontal(|ui| {
                     let current_id = if let Some(cur_subject) = &self.backend.current_subject {
                         cur_subject.lock().unwrap().id
@@ -122,6 +133,9 @@ impl MyApp {
                     }
 
                     if ui.button(text).clicked() {
+                        if current_id != r_subject.id {
+                            self.stop_subject(true);
+                        }
                         self.backend.current_subject = Some(subject.clone());
                     }
 
@@ -135,6 +149,16 @@ impl MyApp {
                 self.current_dialog = CurrentDialog::AddSubject;
             }
         });
+    }
+
+    fn start_subject(&mut self){
+        self.backend.start_subject();
+        self.current_label = self.backend.get_current_work_name();
+    }
+
+    fn stop_subject(&mut self, force: bool){
+        self.backend.stop_subject(force);
+        self.current_label = "".to_string();
     }
 }
 
@@ -160,26 +184,12 @@ fn format_duration(duration: Duration) -> String {
     format!(" {hours_d}:{minutes_d}")
 }
 
-fn custom_global_dark_light_mode_buttons(ui: &mut Ui) {
-    let mut visuals = ui.ctx().style().visuals.clone();
-    custom_light_dark_radio_buttons(&mut visuals, ui);
-    ui.ctx().set_visuals(visuals);
-}
-
-fn custom_light_dark_radio_buttons(vis: &mut Visuals, ui: &mut Ui) {
-    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-        ui.horizontal(|ui| {
-            ui.selectable_value(vis, Visuals::light(), "☀");
-            ui.selectable_value(vis, Visuals::dark(), "🌙");
-        });
-    });
-}
-
 fn custom_window_frame(
     ctx: &egui::Context,
-    _frame: &mut eframe::Frame,
+    frame: &mut eframe::Frame,
     _title: &str,
-    add_contents: impl FnOnce(&mut egui::Ui),
+    display_mode: DisplayMode,
+    add_contents: impl FnOnce(&mut Ui),
 ) {
     use egui::*;
 
@@ -190,6 +200,17 @@ fn custom_window_frame(
         outer_margin: 0.5.into(), // so the stroke is within the bounds
         ..Default::default()
     };
+
+    match display_mode {
+        DisplayMode::Full =>  {
+            frame.set_window_size(Vec2::new(800., 400.,));
+        }
+
+        DisplayMode::Minimal => {
+            frame.set_window_size(Vec2::new(105., 60.,));
+            frame.set_always_on_top(true);
+        }
+    }
 
     CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
         let app_rect = ui.max_rect();
@@ -212,62 +233,110 @@ fn custom_window_frame(
 }
 
 impl eframe::App for MyApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+    fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
         egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        custom_window_frame(ctx, frame, "_", |ui| {
-            ui.horizontal_top(|ui| {
-                ui.label(format!(
-                    "Current work: {}",
-                    self.backend.get_current_work_name()
-                ));
-                custom_global_dark_light_mode_buttons(ui);
-            });
+        let mode = self.current_display_mode;
 
-            ui.horizontal(|ui| {
-                ui.set_min_height(55.0);
-                ui.set_max_height(55.0);
+        match self.current_display_mode {
+            DisplayMode::Full => {
+                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.label(format!(
+                            "Current work: {}",
+                            self.current_label,
+                        ));
 
-                if self.backend.current_subject.is_some() {
-                    match self.backend.working_mode {
-                        WorkingMode::Idle => {
-                            if ui.button("START").clicked() {
-                                self.backend.start_subject();
+                        let mut visuals = ui.ctx().style().visuals.clone();
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(&mut visuals, Visuals::light(), "☀");
+                                ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
+
+                                if self.backend.current_subject.is_some() {
+                                    if ui.button("⬇").clicked() {
+                                        self.current_display_mode = DisplayMode::Minimal;
+                                    }
+                                }
+                            });
+                        });
+
+                        ui.ctx().set_visuals(visuals);
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(55.0);
+                        ui.set_max_height(55.0);
+
+                        if self.backend.current_subject.is_some() {
+                            match self.backend.working_mode {
+                                WorkingMode::Idle => {
+                                    if ui.button("START").clicked() {
+                                        self.start_subject()
+                                    }
+                                }
+                                WorkingMode::InProgress(_) => {
+                                    if ui.button("PAUSE").clicked() {
+                                        self.stop_subject(false);
+                                    }
+                                }
                             }
+                            ui.label(format_duration(self.backend.current_session_duration));
                         }
-                        WorkingMode::InProgress(_) => {
-                            if ui.button("PAUSE").clicked() {
-                                self.backend.stop_subject();
-                            }
-                        }
-                    }
-                    ui.label(format_duration(self.backend.current_session_duration));
-                }
-            });
+                    });
 
-            ui.separator();
+                    ui.separator();
 
-            ui.horizontal(|ui| {
-                ui.set_min_height(290.0);
-                ui.set_max_height(290.0);
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(290.0);
+                        ui.set_max_height(290.0);
 
-                ui.push_id(1, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.build_projects(ui);
+                        ui.push_id(1, |ui| {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                self.build_projects(ui);
+                            });
+                        });
+
+                        ui.separator();
+
+                        ui.push_id(2, |ui| {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                self.build_subjects(ui);
+                            });
+                        });
                     });
                 });
+            }
+            DisplayMode::Minimal => {
+                custom_window_frame(ctx, frame, "_", mode, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(format_duration(self.backend.current_session_duration));
+                        ui.horizontal_centered(|ui| {
+                            match self.backend.working_mode {
+                                WorkingMode::Idle => {
+                                    if ui.button("START").clicked() {
+                                        self.start_subject()
+                                    }
+                                }
+                                WorkingMode::InProgress(_) => {
+                                    if ui.button("PAUSE").clicked() {
+                                        self.stop_subject(false);
+                                    }
+                                }
+                            }
 
-                ui.separator();
-
-                ui.push_id(2, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.build_subjects(ui);
+                            if ui.button("⬆").clicked() {
+                                self.current_display_mode = DisplayMode::Full;
+                            }
+                        });
                     });
                 });
-            });
-        });
+            }
+        }
+
 
         self.backend.update_time();
 
@@ -279,17 +348,17 @@ impl eframe::App for MyApp {
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.current_name));
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
 
                             if ui.button("Cancel").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.current_name = "".to_string();
+                                self.dialog_buffer = "".to_string();
                             }
 
                             if ui.button("Add").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.backend.add_project(&self.current_name);
-                                self.current_name = "".to_string();
+                                self.backend.add_project(&self.dialog_buffer);
+                                self.dialog_buffer = "".to_string();
                             }
                         });
                     });
@@ -300,17 +369,17 @@ impl eframe::App for MyApp {
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.current_name));
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
 
                             if ui.button("Cancel").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.current_name = "".to_string();
+                                self.dialog_buffer = "".to_string();
                             }
 
                             if ui.button("Add").clicked() {
                                 self.current_dialog = CurrentDialog::None;
-                                self.backend.add_subject(&self.current_name);
-                                self.current_name = "".to_string();
+                                self.backend.add_subject(&self.dialog_buffer);
+                                self.dialog_buffer = "".to_string();
                             }
                         });
                     });

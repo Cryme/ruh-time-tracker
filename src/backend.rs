@@ -140,8 +140,16 @@ impl Backend {
         }
     }
 
-    pub fn stop_subject(&mut self) {
+    pub fn stop_subject(&mut self, force: bool) {
         self.working_mode = WorkingMode::Idle;
+
+        if force {
+            self.current_session_duration = Duration::ZERO;
+        } else if let Some(subject) = &self.current_subject {
+            if self.last_session_project_id != subject.lock().unwrap().id {
+                self.current_session_duration = Duration::ZERO;
+            }
+        }
     }
 }
 

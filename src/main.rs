@@ -7,11 +7,11 @@ mod history;
 mod util;
 
 use crate::backend::{Backend, WorkingMode};
+use crate::util::format_duration;
 use eframe::egui;
 use eframe::egui::{Align, Layout, RichText, Ui, Visuals};
 use std::time::Duration;
 use uuid::Uuid;
-use crate::util::format_duration;
 
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
 
@@ -233,7 +233,9 @@ impl eframe::App for MyApp {
                                 ui.selectable_value(&mut visuals, Visuals::light(), "☀");
                                 ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
 
-                                if self.backend.current_subject.is_some() && ui.button("⬇").clicked() {
+                                if self.backend.current_subject.is_some()
+                                    && ui.button("⬇").clicked()
+                                {
                                     self.current_display_mode = DisplayMode::Minimal;
                                 }
                             });

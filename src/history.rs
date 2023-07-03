@@ -1,15 +1,20 @@
-use std::cmp::Ordering;
 use chrono::{DateTime, Local};
 use eframe::epaint::ahash::HashMap;
+use std::cmp::Ordering;
 use uuid::Uuid;
 
 pub struct History {
-    records: HashMap<Uuid, HistoryRecord>
+    records: HashMap<Uuid, HistoryRecord>,
 }
 
 impl History {
-    pub fn get_ordered_records(&self, date_range: (DateTime<Local>, DateTime<Local>)) -> Vec<HistoryRecord> {
-        let mut r: Vec<HistoryRecord> = self.records.values()
+    pub fn get_ordered_records(
+        &self,
+        date_range: (DateTime<Local>, DateTime<Local>),
+    ) -> Vec<HistoryRecord> {
+        let mut r: Vec<HistoryRecord> = self
+            .records
+            .values()
             .filter(|v| v.start_date >= date_range.0 && v.start_date <= date_range.1)
             .map(|v| *v)
             .collect();
@@ -49,5 +54,4 @@ impl Ord for HistoryRecord {
     }
 }
 
-impl HistoryRecord {
-}
+impl HistoryRecord {}

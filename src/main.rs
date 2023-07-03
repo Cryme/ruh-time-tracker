@@ -44,7 +44,7 @@ struct MyApp {
 #[derive(Copy, Clone)]
 enum DisplayMode {
     Full,
-    Minimal
+    Minimal,
 }
 
 enum CurrentDialog {
@@ -151,12 +151,12 @@ impl MyApp {
         });
     }
 
-    fn start_subject(&mut self){
+    fn start_subject(&mut self) {
         self.backend.start_subject();
         self.current_label = self.backend.get_current_work_name();
     }
 
-    fn stop_subject(&mut self, force: bool){
+    fn stop_subject(&mut self, force: bool) {
         self.backend.stop_subject(force);
         self.current_label = "".to_string();
     }
@@ -202,12 +202,12 @@ fn custom_window_frame(
     };
 
     match display_mode {
-        DisplayMode::Full =>  {
-            frame.set_window_size(Vec2::new(800., 400.,));
+        DisplayMode::Full => {
+            frame.set_window_size(Vec2::new(800., 400.));
         }
 
         DisplayMode::Minimal => {
-            frame.set_window_size(Vec2::new(105., 60.,));
+            frame.set_window_size(Vec2::new(105., 60.));
             frame.set_always_on_top(true);
         }
     }
@@ -244,10 +244,7 @@ impl eframe::App for MyApp {
             DisplayMode::Full => {
                 custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
                     ui.horizontal_top(|ui| {
-                        ui.label(format!(
-                            "Current work: {}",
-                            self.current_label,
-                        ));
+                        ui.label(format!("Current work: {}", self.current_label,));
 
                         let mut visuals = ui.ctx().style().visuals.clone();
 
@@ -336,7 +333,6 @@ impl eframe::App for MyApp {
                 });
             }
         }
-
 
         self.backend.update_time();
 

@@ -70,6 +70,14 @@ impl Backend {
         }
     }
 
+    pub fn set_current_subject(&mut self, subject: Option<Arc<Mutex<Subject>>>) {
+        self.current_subject = subject;
+    }
+
+    pub fn set_current_project(&mut self, project: Option<Arc<Mutex<Project>>>) {
+        self.current_project = project;
+    }
+
     fn dump(&mut self) {
         let mut file = File::create("./data.ron").unwrap();
         file.write_all(

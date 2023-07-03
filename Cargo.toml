@@ -10,6 +10,7 @@ env_logger = "0.10"
 eframe = "0.22.0"
 serde = "1"
 ron = "0.8.0"
+chrono = "0.4.26"
 
 [dependencies.uuid]
 version = "1.4"

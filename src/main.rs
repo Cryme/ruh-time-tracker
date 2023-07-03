@@ -4,13 +4,14 @@
 
 mod backend;
 mod history;
+mod util;
 
 use crate::backend::{Backend, WorkingMode};
 use eframe::egui;
 use eframe::egui::{Align, Layout, RichText, Ui, Visuals};
-use std::ops::Rem;
 use std::time::Duration;
 use uuid::Uuid;
+use crate::util::format_duration;
 
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
 
@@ -75,7 +76,8 @@ impl MyApp {
         ui.set_max_width(400.0);
 
         ui.vertical(|ui| {
-            for project in &self.backend.projects {
+            let projects = self.backend.projects.clone();
+            for project in projects {
                 ui.horizontal(|ui| {
                     let current_id = if let Some(cur_project) = &self.backend.current_project {
                         cur_project.lock().unwrap().id
@@ -92,7 +94,7 @@ impl MyApp {
                     }
 
                     if ui.button(text).clicked() {
-                        self.backend.current_project = Some(project.clone());
+                        self.backend.set_current_project(Some(project.clone()));
                     }
 
                     ui.label(format_duration(r_project.get_time()));
@@ -136,7 +138,7 @@ impl MyApp {
                         if current_id != r_subject.id {
                             self.stop_subject(true);
                         }
-                        self.backend.current_subject = Some(subject.clone());
+                        self.backend.set_current_subject(Some(subject.clone()));
                     }
 
                     ui.label(format_duration(r_subject.duration));
@@ -160,28 +162,6 @@ impl MyApp {
         self.backend.stop_subject(force);
         self.current_label = "".to_string();
     }
-}
-
-fn format_duration(duration: Duration) -> String {
-    const HOUR_S: f64 = 60.0 * 60.0;
-
-    let spent = duration.as_secs_f64();
-
-    let hours = (spent / HOUR_S).round();
-    let minutes = (spent.rem(&HOUR_S) / 60.0).round();
-
-    let hours_d = if hours > 9.0 {
-        format!("{hours}")
-    } else {
-        format!("0{hours}")
-    };
-    let minutes_d = if minutes > 9.0 {
-        format!("{minutes}")
-    } else {
-        format!("0{minutes}")
-    };
-
-    format!(" {hours_d}:{minutes_d}")
 }
 
 fn custom_window_frame(
@@ -253,10 +233,8 @@ impl eframe::App for MyApp {
                                 ui.selectable_value(&mut visuals, Visuals::light(), "☀");
                                 ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
 
-                                if self.backend.current_subject.is_some() {
-                                    if ui.button("⬇").clicked() {
-                                        self.current_display_mode = DisplayMode::Minimal;
-                                    }
+                                if self.backend.current_subject.is_some() && ui.button("⬇").clicked() {
+                                    self.current_display_mode = DisplayMode::Minimal;
                                 }
                             });
                         });

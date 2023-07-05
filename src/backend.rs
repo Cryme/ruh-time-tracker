@@ -1,3 +1,5 @@
+use rand::{thread_rng, Rng};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -6,6 +8,10 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::history::History;
+use crate::util;
+use util::{my_hash_map_mutex, my_uuid};
 
 #[derive(Default)]
 pub enum WorkingMode {
@@ -16,13 +22,15 @@ pub enum WorkingMode {
 
 pub struct WorkingProgress {
     subject: Arc<Mutex<Subject>>,
+    session_id: Uuid,
     previous_tick: SystemTime,
 }
 
 impl WorkingProgress {
-    fn start(subject: Arc<Mutex<Subject>>) -> Self {
+    fn start(subject: Arc<Mutex<Subject>>, session_id: Uuid) -> Self {
         Self {
             subject,
+            session_id,
             previous_tick: SystemTime::now(),
         }
     }
@@ -30,8 +38,8 @@ impl WorkingProgress {
 
 #[derive(Serialize, Deserialize)]
 pub struct Backend {
-    #[serde(with = "my_vec")]
-    pub(crate) projects: Vec<Arc<Mutex<Project>>>,
+    #[serde(with = "my_hash_map_mutex")]
+    pub(crate) projects: HashMap<Uuid, Arc<Mutex<Project>>>,
     #[serde(skip)]
     pub(crate) current_project: Option<Arc<Mutex<Project>>>,
     #[serde(skip)]
@@ -40,8 +48,9 @@ pub struct Backend {
     pub(crate) working_mode: WorkingMode,
     pub(crate) current_session_duration: Duration,
     #[serde(with = "my_uuid")]
-    pub(crate) last_session_project_id: Uuid,
+    pub(crate) last_session_subject_id: Uuid,
     last_save: SystemTime,
+    pub(crate) history: History,
 }
 
 impl Backend {
@@ -52,7 +61,7 @@ impl Backend {
             if let Ok(mut file) = File::open("./data.ron") {
                 let mut contents = String::new();
                 if file.read_to_string(&mut contents).is_ok() {
-                    if let Ok(data) = ron::from_str(&contents) {
+                    if let Ok(data) = ron::from_str::<Backend>(&contents) {
                         return data;
                     }
                 }
@@ -60,13 +69,14 @@ impl Backend {
         }
 
         Self {
-            projects: vec![],
+            projects: HashMap::new(),
             current_project: None,
             current_subject: None,
             working_mode: Default::default(),
             current_session_duration: Duration::default(),
-            last_session_project_id: Uuid::new_v4(),
+            last_session_subject_id: Uuid::new_v4(),
             last_save: SystemTime::now(),
+            history: History::new(),
         }
     }
 
@@ -101,6 +111,8 @@ impl Backend {
 
             progress.subject.lock().unwrap().duration += duration;
 
+            self.history.update(progress.session_id);
+
             if SystemTime::now().duration_since(self.last_save).unwrap() > Duration::from_secs(1) {
                 self.dump();
             }
@@ -122,8 +134,9 @@ impl Backend {
     }
 
     pub fn add_project(&mut self, name: &str) {
+        let project = Project::create(name);
         self.projects
-            .push(Arc::new(Mutex::new(Project::create(name))));
+            .insert(project.id, Arc::new(Mutex::new(project)));
 
         self.dump();
     }
@@ -138,13 +151,21 @@ impl Backend {
 
     pub fn start_subject(&mut self) {
         if let Some(subject) = &self.current_subject {
-            if self.last_session_project_id != subject.lock().unwrap().id {
-                self.current_session_duration = Duration::ZERO;
+            if let Some(project) = &self.current_project {
+                let subject_id = subject.lock().unwrap().id;
+
+                if self.last_session_subject_id != subject_id {
+                    self.current_session_duration = Duration::ZERO;
+                }
+
+                self.last_session_subject_id = subject_id;
+
+                let project = project.lock().unwrap();
+                self.working_mode = WorkingMode::InProgress(WorkingProgress::start(
+                    subject.clone(),
+                    self.history.add_record(project.id, subject_id),
+                ));
             }
-
-            self.last_session_project_id = subject.lock().unwrap().id;
-
-            self.working_mode = WorkingMode::InProgress(WorkingProgress::start(subject.clone()));
         }
     }
 
@@ -154,7 +175,7 @@ impl Backend {
         if force {
             self.current_session_duration = Duration::ZERO;
         } else if let Some(subject) = &self.current_subject {
-            if self.last_session_project_id != subject.lock().unwrap().id {
+            if self.last_session_subject_id != subject.lock().unwrap().id {
                 self.current_session_duration = Duration::ZERO;
             }
         }
@@ -166,28 +187,36 @@ pub struct Project {
     #[serde(with = "my_uuid")]
     pub(crate) id: Uuid,
     pub(crate) name: String,
-    #[serde(with = "my_vec")]
-    pub(crate) subjects: Vec<Arc<Mutex<Subject>>>,
+    #[serde(with = "my_hash_map_mutex")]
+    pub(crate) subjects: HashMap<Uuid, Arc<Mutex<Subject>>>,
+    pub(crate) is_deleted: bool,
+    pub(crate) color: (u8, u8, u8),
 }
 
 impl Project {
     pub fn create(name: &str) -> Self {
+        let mut rng = thread_rng();
+
         Project {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            subjects: Vec::new(),
+            subjects: HashMap::new(),
+            is_deleted: false,
+            color: (rng.gen(), rng.gen(), rng.gen()),
         }
     }
 
     pub fn add_subject(&mut self, name: &str) {
+        let subject = Subject::create(name);
+
         self.subjects
-            .push(Arc::new(Mutex::new(Subject::create(name))))
+            .insert(subject.id, Arc::new(Mutex::new(subject)));
     }
 
     pub fn get_time(&self) -> Duration {
-        self.subjects
-            .iter()
-            .fold(Duration::default(), |s, e| s + e.lock().unwrap().duration)
+        self.subjects.iter().fold(Duration::default(), |s, (_, e)| {
+            s + e.lock().unwrap().duration
+        })
     }
 }
 
@@ -197,6 +226,7 @@ pub struct Subject {
     pub(crate) id: Uuid,
     pub(crate) name: String,
     pub(crate) duration: Duration,
+    pub(crate) is_deleted: bool,
 }
 
 impl Subject {
@@ -205,61 +235,7 @@ impl Subject {
             id: Uuid::new_v4(),
             name: name.to_string(),
             duration: Duration::default(),
+            is_deleted: false,
         }
-    }
-}
-
-mod my_vec {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::sync::{Arc, Mutex};
-
-    pub fn serialize<S, T>(val: &Vec<Arc<Mutex<T>>>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        T: Serialize,
-        T: Clone,
-    {
-        let mut res = Vec::new();
-
-        for v in val {
-            let n = v.lock().unwrap().clone();
-            res.push(n)
-        }
-
-        res.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Vec<Arc<Mutex<T>>>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-        T: Clone,
-    {
-        let val: Vec<T> = Deserialize::deserialize(deserializer)?;
-
-        Ok(val
-            .iter()
-            .map(|v| Arc::new(Mutex::new(v.clone())))
-            .collect())
-    }
-}
-
-mod my_uuid {
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-    use uuid::Uuid;
-
-    pub fn serialize<S>(val: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        val.to_string().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let val: &str = Deserialize::deserialize(deserializer)?;
-        Uuid::parse_str(val).map_err(D::Error::custom)
     }
 }

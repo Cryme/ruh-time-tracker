@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use std::ops::Rem;
 use std::time::Duration;
 
@@ -9,16 +10,140 @@ pub fn format_duration(duration: Duration) -> String {
     let hours = (spent / HOUR_S).trunc();
     let minutes = (spent.rem(&HOUR_S) / 60.0).trunc();
 
-    let hours_d = if hours > 9.0 {
-        format!("{hours}")
-    } else {
-        format!("0{hours}")
-    };
-    let minutes_d = if minutes > 9.0 {
-        format!("{minutes}")
-    } else {
-        format!("0{minutes}")
-    };
+    format!(
+        " {}:{}",
+        format_number(hours as u32),
+        format_number(minutes as u32)
+    )
+}
 
-    format!(" {hours_d}:{minutes_d}")
+pub fn format_number<T>(number: T) -> String
+where
+    T: Into<u32>,
+{
+    let number = number.into();
+
+    if number > 9 {
+        format!("{number}")
+    } else {
+        format!("0{number}")
+    }
+}
+
+pub mod my_hash_map_mutex {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use uuid::Uuid;
+
+    pub fn serialize<S, T>(
+        val: &HashMap<Uuid, Arc<Mutex<T>>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+        T: Clone,
+    {
+        let mut res = HashMap::new();
+
+        for v in val {
+            res.insert(v.0.to_string(), v.1.lock().unwrap().clone());
+        }
+
+        res.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<HashMap<Uuid, Arc<Mutex<T>>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+        T: Clone,
+    {
+        let val: HashMap<String, T> = Deserialize::deserialize(deserializer)?;
+        let mut res: HashMap<Uuid, Arc<Mutex<T>>> = HashMap::new();
+
+        for v in &val {
+            res.insert(
+                Uuid::parse_str(v.0).unwrap(),
+                Arc::new(Mutex::new(v.1.clone())),
+            );
+        }
+
+        Ok(res)
+    }
+}
+
+pub mod my_hash_map {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    pub fn serialize<S, T>(val: &HashMap<Uuid, T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+        T: Clone,
+    {
+        let mut res = HashMap::new();
+
+        for v in val {
+            res.insert(v.0.to_string(), v.1.clone());
+        }
+
+        res.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<HashMap<Uuid, T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+        T: Clone,
+    {
+        let val: HashMap<String, T> = Deserialize::deserialize(deserializer)?;
+        let mut res: HashMap<Uuid, T> = HashMap::new();
+
+        for v in &val {
+            res.insert(Uuid::parse_str(v.0).unwrap(), v.1.clone());
+        }
+
+        Ok(res)
+    }
+}
+
+pub mod my_uuid {
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use uuid::Uuid;
+
+    pub fn serialize<S>(val: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        val.to_string().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let val: &str = Deserialize::deserialize(deserializer)?;
+        Uuid::parse_str(val).map_err(D::Error::custom)
+    }
+}
+
+pub fn get_days_from_month(year: i32, month: u32) -> u32 {
+    NaiveDate::from_ymd_opt(
+        match month {
+            12 => year + 1,
+            _ => year,
+        },
+        match month {
+            12 => 1,
+            _ => month + 1,
+        },
+        1,
+    )
+    .unwrap()
+    .signed_duration_since(NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+    .num_days() as u32
 }

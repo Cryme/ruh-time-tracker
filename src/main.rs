@@ -4,13 +4,16 @@
 
 mod backend;
 mod history;
+mod statistic;
 mod util;
 
 use crate::backend::{Backend, WorkingMode};
+use crate::statistic::build_statistic;
 use crate::util::format_duration;
+use chrono::{DateTime, Datelike, Local, TimeZone};
 use eframe::egui;
-use eframe::egui::{Align, Layout, RichText, Ui, Visuals};
-use std::time::Duration;
+use eframe::egui::{Align, Layout, RichText, ScrollArea, Ui, Visuals};
+use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
@@ -40,12 +43,14 @@ struct MyApp {
     current_label: String,
     dialog_buffer: String,
     current_display_mode: DisplayMode,
+    offset: f32,
 }
 
 #[derive(Copy, Clone)]
 enum DisplayMode {
     Full,
     Minimal,
+    Statistic,
 }
 
 enum CurrentDialog {
@@ -64,10 +69,11 @@ impl MyApp {
 
         Self {
             backend: Backend::load(),
-            current_display_mode: DisplayMode::Full,
+            current_display_mode: DisplayMode::Statistic,
             current_dialog: CurrentDialog::None,
             dialog_buffer: "".to_string(),
             current_label: "".to_string(),
+            offset: 0.,
         }
     }
 
@@ -75,18 +81,22 @@ impl MyApp {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
+        let current_id = if let Some(cur_project) = &self.backend.current_project {
+            cur_project.lock().unwrap().id
+        } else {
+            Uuid::new_v4()
+        };
+
         ui.vertical(|ui| {
             let projects = self.backend.projects.clone();
-            for project in projects {
+            for (_, project) in projects {
+                let r_project = project.lock().unwrap();
+
+                if r_project.is_deleted {
+                    continue;
+                }
+
                 ui.horizontal(|ui| {
-                    let current_id = if let Some(cur_project) = &self.backend.current_project {
-                        cur_project.lock().unwrap().id
-                    } else {
-                        Uuid::new_v4()
-                    };
-
-                    let r_project = project.lock().unwrap();
-
                     let mut text = RichText::new(&r_project.name);
 
                     if r_project.id == current_id {
@@ -117,17 +127,21 @@ impl MyApp {
             return;
         };
 
+        let current_id = if let Some(cur_subject) = &self.backend.current_subject {
+            cur_subject.lock().unwrap().id
+        } else {
+            Uuid::new_v4()
+        };
+
         ui.vertical(|ui| {
-            for subject in &current_project.lock().unwrap().subjects {
+            for (_, subject) in &current_project.lock().unwrap().subjects {
+                let r_subject = subject.lock().unwrap();
+
+                if r_subject.is_deleted {
+                    continue;
+                }
+
                 ui.horizontal(|ui| {
-                    let current_id = if let Some(cur_subject) = &self.backend.current_subject {
-                        cur_subject.lock().unwrap().id
-                    } else {
-                        Uuid::new_v4()
-                    };
-
-                    let r_subject = subject.lock().unwrap();
-
                     let mut text = RichText::new(&r_subject.name);
 
                     if r_subject.id == current_id {
@@ -182,6 +196,10 @@ fn custom_window_frame(
     };
 
     match display_mode {
+        DisplayMode::Statistic => {
+            frame.set_window_size(Vec2::new(1200., 800.));
+        }
+
         DisplayMode::Full => {
             frame.set_window_size(Vec2::new(800., 400.));
         }
@@ -221,6 +239,28 @@ impl eframe::App for MyApp {
         let mode = self.current_display_mode;
 
         match self.current_display_mode {
+            DisplayMode::Statistic => {
+                let s1 = DateTime::<Local>::from(SystemTime::now());
+                let from = Local
+                    .with_ymd_and_hms(s1.year(), s1.month(), s1.day() - 2, 0, 0, 0)
+                    .unwrap();
+                let to = Local
+                    .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 2, 23, 59, 59)
+                    .unwrap();
+
+                let range: (DateTime<Local>, DateTime<Local>) = (from, to);
+
+                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
+                    build_statistic(
+                        ui,
+                        self.backend.history.get_ordered_records(range),
+                        &self.backend,
+                        &mut self.offset,
+                        range,
+                    );
+                });
+            }
+
             DisplayMode::Full => {
                 custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
                     ui.horizontal_top(|ui| {
@@ -272,7 +312,7 @@ impl eframe::App for MyApp {
                         ui.set_max_height(290.0);
 
                         ui.push_id(1, |ui| {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
+                            ScrollArea::vertical().show(ui, |ui| {
                                 self.build_projects(ui);
                             });
                         });
@@ -280,18 +320,18 @@ impl eframe::App for MyApp {
                         ui.separator();
 
                         ui.push_id(2, |ui| {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
+                            ScrollArea::vertical().show(ui, |ui| {
                                 self.build_subjects(ui);
                             });
                         });
                     });
                 });
             }
+
             DisplayMode::Minimal => {
                 custom_window_frame(ctx, frame, "_", mode, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.label(format_duration(self.backend.current_session_duration));
-                        ui.horizontal_centered(|ui| {
+                        ui.horizontal(|ui| {
                             match self.backend.working_mode {
                                 WorkingMode::Idle => {
                                     if ui.button("START").clicked() {
@@ -309,6 +349,7 @@ impl eframe::App for MyApp {
                                 self.current_display_mode = DisplayMode::Full;
                             }
                         });
+                        ui.label(format_duration(self.backend.current_session_duration));
                     });
                 });
             }

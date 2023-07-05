@@ -134,7 +134,7 @@ impl MyApp {
         };
 
         ui.vertical(|ui| {
-            for (_, subject) in &current_project.lock().unwrap().subjects {
+            for subject in current_project.lock().unwrap().subjects.values() {
                 let r_subject = subject.lock().unwrap();
 
                 if r_subject.is_deleted {

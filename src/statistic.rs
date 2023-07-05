@@ -113,7 +113,7 @@ pub fn build_statistic(
                         for day in from..=to {
                             let mut previous_ending = None;
                             let mut space_added = false;
-                            let mut length = 0. as f32;
+                            let mut length = 0_f32;
 
                             ui.horizontal_centered(|ui| {
                                 ui.horizontal(|ui| {

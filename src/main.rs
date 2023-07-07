@@ -46,17 +46,20 @@ struct MyApp {
     offset: f32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum DisplayMode {
-    Full,
+    Time,
     Minimal,
     Statistic,
+    Todo,
 }
 
 enum CurrentDialog {
     None,
     AddProject,
     AddSubject,
+    AddTodoProject,
+    AddTodoSubject,
 }
 
 impl MyApp {
@@ -69,7 +72,7 @@ impl MyApp {
 
         Self {
             backend: Backend::load(),
-            current_display_mode: DisplayMode::Statistic,
+            current_display_mode: DisplayMode::Time,
             current_dialog: CurrentDialog::None,
             dialog_buffer: "".to_string(),
             current_label: "".to_string(),
@@ -167,6 +170,84 @@ impl MyApp {
         });
     }
 
+    fn build_todo_projects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(400.0);
+        ui.set_max_width(400.0);
+
+        let current_id = if let Some(cur_project) = &self.backend.current_todo_project {
+            cur_project.lock().unwrap().id
+        } else {
+            Uuid::new_v4()
+        };
+
+        ui.vertical(|ui| {
+            let projects = self.backend.todos.clone();
+            for (_, project) in projects {
+                let r_project = project.lock().unwrap();
+
+                if r_project.is_deleted {
+                    continue;
+                }
+
+                ui.horizontal(|ui| {
+                    let mut text = RichText::new(&r_project.name);
+
+                    if r_project.id == current_id {
+                        text = text.strong();
+                    }
+
+                    if ui.button(text).clicked() {
+                        self.backend.set_current_todo_project(Some(project.clone()));
+                    }
+                });
+
+                ui.add_space(5.0);
+            }
+
+            if ui.button("   +   ").clicked() {
+                self.current_dialog = CurrentDialog::AddTodoProject;
+            }
+        });
+    }
+
+    fn build_todo_subjects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(400.0);
+        ui.set_max_width(400.0);
+
+        let Some(current_project) = self.backend.current_todo_project.clone() else {
+            return;
+        };
+
+        ui.vertical(|ui| {
+            for subject in current_project.lock().unwrap().subjects.values() {
+                let text;
+                let mut is_done;
+                {
+                    let r_subject = subject.lock().unwrap();
+
+                    if r_subject.is_deleted {
+                        continue;
+                    }
+                    text = RichText::new(&r_subject.name);
+                    is_done = r_subject.is_done;
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut is_done, text).clicked(){
+                        subject.lock().unwrap().toggle();
+                        self.backend.mark_dirty();
+                    };
+                });
+
+                ui.add_space(5.0);
+            }
+
+            if ui.button("   +   ").clicked() {
+                self.current_dialog = CurrentDialog::AddTodoSubject;
+            }
+        });
+    }
+
     fn start_subject(&mut self) {
         self.backend.start_subject();
         self.current_label = self.backend.get_current_work_name();
@@ -200,7 +281,7 @@ fn custom_window_frame(
             frame.set_window_size(Vec2::new(1200., 800.));
         }
 
-        DisplayMode::Full => {
+        DisplayMode::Time | DisplayMode::Todo => {
             frame.set_window_size(Vec2::new(800., 400.));
         }
 
@@ -251,6 +332,21 @@ impl eframe::App for MyApp {
                 let range: (DateTime<Local>, DateTime<Local>) = (from, to);
 
                 custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add_space(5.);
+                                egui::ComboBox::from_label("")
+                                    .selected_text(format!("{:?}", self.current_display_mode))
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                    });
+                            });
+                        });
+                    });
+
                     build_statistic(
                         ui,
                         self.backend.history.get_ordered_records(range),
@@ -261,7 +357,7 @@ impl eframe::App for MyApp {
                 });
             }
 
-            DisplayMode::Full => {
+            DisplayMode::Time => {
                 custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
                     ui.horizontal_top(|ui| {
                         ui.label(format!("Current work: {}", self.current_label,));
@@ -270,6 +366,7 @@ impl eframe::App for MyApp {
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                             ui.horizontal(|ui| {
+
                                 ui.selectable_value(&mut visuals, Visuals::light(), "☀");
                                 ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
 
@@ -278,6 +375,14 @@ impl eframe::App for MyApp {
                                 {
                                     self.current_display_mode = DisplayMode::Minimal;
                                 }
+
+                                egui::ComboBox::from_label("")
+                                    .selected_text(format!("{:?}", self.current_display_mode))
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                    });
                             });
                         });
 
@@ -328,6 +433,45 @@ impl eframe::App for MyApp {
                 });
             }
 
+            DisplayMode::Todo => {
+                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_label("")
+                                    .selected_text(format!("{:?}", self.current_display_mode))
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
+                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                    });
+                            });
+                        });
+                    });
+
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(353.0);
+                        ui.set_max_height(353.0);
+
+                        ui.push_id(1, |ui| {
+                            ScrollArea::vertical().show(ui, |ui| {
+                                self.build_todo_projects(ui);
+                            });
+                        });
+
+                        ui.separator();
+
+                        ui.push_id(2, |ui| {
+                            ScrollArea::vertical().show(ui, |ui| {
+                                self.build_todo_subjects(ui);
+                            });
+                        });
+                    });
+                });
+            }
+
             DisplayMode::Minimal => {
                 custom_window_frame(ctx, frame, "_", mode, |ui| {
                     ui.vertical_centered(|ui| {
@@ -346,7 +490,7 @@ impl eframe::App for MyApp {
                             }
 
                             if ui.button("⬆").clicked() {
-                                self.current_display_mode = DisplayMode::Full;
+                                self.current_display_mode = DisplayMode::Time;
                             }
                         });
                         ui.label(format_duration(self.backend.current_session_duration));
@@ -380,6 +524,7 @@ impl eframe::App for MyApp {
                         });
                     });
             }
+
             CurrentDialog::AddSubject => {
                 egui::Window::new("Add Project")
                     .collapsible(false)
@@ -396,6 +541,50 @@ impl eframe::App for MyApp {
                             if ui.button("Add").clicked() {
                                 self.current_dialog = CurrentDialog::None;
                                 self.backend.add_subject(&self.dialog_buffer);
+                                self.dialog_buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
+            CurrentDialog::AddTodoProject => {
+                egui::Window::new("Add Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.current_dialog = CurrentDialog::None;
+                                self.dialog_buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.current_dialog = CurrentDialog::None;
+                                self.backend.add_todo_project(&self.dialog_buffer);
+                                self.dialog_buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
+            CurrentDialog::AddTodoSubject => {
+                egui::Window::new("Add Subject")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.current_dialog = CurrentDialog::None;
+                                self.dialog_buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.current_dialog = CurrentDialog::None;
+                                self.backend.add_todo_subject(&self.dialog_buffer);
                                 self.dialog_buffer = "".to_string();
                             }
                         });

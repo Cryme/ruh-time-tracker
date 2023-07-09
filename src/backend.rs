@@ -12,8 +12,8 @@ use std::time::{Duration, SystemTime};
 
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use util::{my_hash_map_mutex, my_uuid};
+use uuid::Uuid;
 
 #[derive(Default)]
 pub enum WorkingMode {
@@ -91,7 +91,7 @@ impl Backend {
         }
     }
 
-    pub fn mark_dirty(&mut self){
+    pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
@@ -159,8 +159,7 @@ impl Backend {
 
     pub fn add_todo_project(&mut self, name: &str) {
         let project = TodoProject::create(name);
-        self.todos
-            .insert(project.id, Arc::new(Mutex::new(project)));
+        self.todos.insert(project.id, Arc::new(Mutex::new(project)));
 
         self.mark_dirty();
     }
@@ -292,7 +291,6 @@ pub struct TodoProject {
 
 impl TodoProject {
     pub fn create(name: &str) -> Self {
-
         TodoProject {
             id: Uuid::new_v4(),
             name: name.to_string(),
@@ -328,7 +326,7 @@ impl TodoSubject {
         }
     }
 
-    pub(crate) fn toggle(&mut self){
+    pub(crate) fn toggle(&mut self) {
         self.is_done = !self.is_done;
     }
 }

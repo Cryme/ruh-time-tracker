@@ -1,7 +1,7 @@
 use crate::backend::{Backend, WorkingMode};
+use crate::custom_window_frame;
 use crate::statistic::build_statistic;
 use crate::util::format_duration;
-use crate::custom_window_frame;
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 use eframe::egui;
@@ -207,7 +207,7 @@ impl Frontend {
                 }
 
                 ui.horizontal(|ui| {
-                    if ui.checkbox(&mut is_done, text).clicked(){
+                    if ui.checkbox(&mut is_done, text).clicked() {
                         subject.lock().unwrap().toggle();
                         self.backend.mark_dirty();
                     };
@@ -232,7 +232,6 @@ impl Frontend {
         self.current_label = "".to_string();
     }
 }
-
 
 impl eframe::App for Frontend {
     fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
@@ -262,9 +261,21 @@ impl eframe::App for Frontend {
                                 egui::ComboBox::from_label("")
                                     .selected_text(format!("{:?}", self.current_display_mode))
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Time,
+                                            "Time",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Statistic,
+                                            "Statistic",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Todo,
+                                            "Todo",
+                                        );
                                     });
                             });
                         });
@@ -289,7 +300,6 @@ impl eframe::App for Frontend {
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                             ui.horizontal(|ui| {
-
                                 ui.selectable_value(&mut visuals, Visuals::light(), "☀");
                                 ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
 
@@ -302,9 +312,21 @@ impl eframe::App for Frontend {
                                 egui::ComboBox::from_label("")
                                     .selected_text(format!("{:?}", self.current_display_mode))
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Time,
+                                            "Time",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Statistic,
+                                            "Statistic",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Todo,
+                                            "Todo",
+                                        );
                                     });
                             });
                         });
@@ -364,9 +386,21 @@ impl eframe::App for Frontend {
                                 egui::ComboBox::from_label("")
                                     .selected_text(format!("{:?}", self.current_display_mode))
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Time, "Time");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Statistic, "Statistic");
-                                        ui.selectable_value(&mut self.current_display_mode, DisplayMode::Todo, "Todo");
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Time,
+                                            "Time",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Statistic,
+                                            "Statistic",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.current_display_mode,
+                                            DisplayMode::Todo,
+                                            "Todo",
+                                        );
                                     });
                             });
                         });

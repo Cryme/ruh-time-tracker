@@ -100,7 +100,6 @@ impl History {
             } else {
                 res.get_mut(ind).unwrap().push(record);
             }
-
         }
 
         res

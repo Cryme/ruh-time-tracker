@@ -1,16 +1,18 @@
-use rand::{thread_rng, Rng};
+use crate::history::History;
+use crate::util;
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+
 use std::sync::{Arc, Mutex};
+
 use std::time::{Duration, SystemTime};
 
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-use crate::history::History;
-use crate::util;
 use util::{my_hash_map_mutex, my_uuid};
 
 #[derive(Default)]

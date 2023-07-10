@@ -1,4 +1,4 @@
-use chrono::{Datelike, DateTime, Local, NaiveDate};
+use chrono::{DateTime, Datelike, Local, NaiveDate};
 use std::ops::Rem;
 use std::time::Duration;
 

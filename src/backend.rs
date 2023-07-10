@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use util::{my_hash_map_mutex, my_uuid};
 use uuid::Uuid;
 
-
 #[derive(Default)]
 pub enum WorkingMode {
     #[default]

@@ -4,15 +4,15 @@ use crate::util::{calendar_days_count, format_duration, format_number, get_days_
 
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use eframe::egui;
-use eframe::egui::{Align, Color32, FontId, Layout, RichText, Rounding, ScrollArea, Ui, Vec2, Visuals};
-use std::time::{Duration, SystemTime};
 use eframe::egui::scroll_area::ScrollBarVisibility;
+use eframe::egui::{
+    Align, Color32, FontId, Layout, RichText, Rounding, ScrollArea, Ui, Vec2, Visuals,
+};
 use eframe::epaint::RectShape;
+use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
-
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
-
 
 #[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub enum DisplayMode {
@@ -56,7 +56,7 @@ impl Frontend {
 
         Self {
             backend: Backend::load(),
-            .. Self::default()
+            ..Self::default()
         }
     }
 }
@@ -99,8 +99,9 @@ impl eframe::App for Frontend {
     }
 }
 
-
-//! Dialog block
+/**
+    Dialog block
+**/
 
 #[derive(Default)]
 struct DialogOptions {
@@ -109,7 +110,7 @@ struct DialogOptions {
 }
 
 impl Frontend {
-    fn dialog_build(&mut self, ctx: &egui::Context){
+    fn dialog_build(&mut self, ctx: &egui::Context) {
         match self.dialog_options.current_dialog {
             CurrentDialog::None => {}
 
@@ -204,8 +205,9 @@ impl Frontend {
     }
 }
 
-
-//! Statistics block
+/**
+    Statistics block
+**/
 
 struct StatisticOptions {
     scroll_offset_x: f32,
@@ -224,20 +226,17 @@ impl Default for StatisticOptions {
             .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 1, 23, 59, 59)
             .unwrap();
 
-        StatisticOptions{
+        StatisticOptions {
             scroll_offset_x: 0.,
             scroll_offset_y: 0.,
             from,
-            to
+            to,
         }
     }
 }
 
 impl Frontend {
-    fn build_statistic(
-        &mut self,
-        ui: &mut Ui,
-    ) {
+    fn build_statistic(&mut self, ui: &mut Ui) {
         ui.horizontal_top(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                 ui.horizontal(|ui| {
@@ -265,7 +264,10 @@ impl Frontend {
             });
         });
 
-        let records = self.backend.history.get_ordered_records((self.statistic_options.from, self.statistic_options.to));
+        let records = self
+            .backend
+            .history
+            .get_ordered_records((self.statistic_options.from, self.statistic_options.to));
         let style = ui.style().clone();
         let mut new_style = (*style).clone();
         new_style.spacing.item_spacing = Vec2::new(0., 0.);
@@ -298,7 +300,7 @@ impl Frontend {
                             } else {
                                 format!("{i}")
                             })
-                                .font(FontId::proportional(12.0)),
+                            .font(FontId::proportional(12.0)),
                         );
                         if i < 24 {
                             ui.add_space(60.0 - c.rect.size().x)
@@ -355,9 +357,13 @@ impl Frontend {
                     ui.vertical(|ui| {
                         let mut first_year_first_month = true;
 
-                        for year in self.statistic_options.from.year()..=self.statistic_options.to.year() {
+                        for year in
+                            self.statistic_options.from.year()..=self.statistic_options.to.year()
+                        {
                             //TODO: fix month
-                            for month in self.statistic_options.from.month()..=self.statistic_options.to.month() {
+                            for month in self.statistic_options.from.month()
+                                ..=self.statistic_options.to.month()
+                            {
                                 let from = if first_year_first_month {
                                     first_year_first_month = false;
 
@@ -366,7 +372,9 @@ impl Frontend {
                                     1
                                 };
 
-                                let to = if year == self.statistic_options.to.year() && month == self.statistic_options.to.month() {
+                                let to = if year == self.statistic_options.to.year()
+                                    && month == self.statistic_options.to.month()
+                                {
                                     self.statistic_options.to.day()
                                 } else {
                                     get_days_from_month(year, month)
@@ -383,7 +391,7 @@ impl Frontend {
                                                 format_number(day),
                                                 format_number(month)
                                             ))
-                                                .font(FontId::proportional(13.0)),
+                                            .font(FontId::proportional(13.0)),
                                         );
                                     });
                                 }
@@ -396,8 +404,13 @@ impl Frontend {
             ui.push_id(6, |ui| {
                 let bars_block = ScrollArea::both().show(ui, |ui| {
                     ui.set_min_size(Vec2::new(
-                        60.0*24.0,
-                        315.0f32.max(25. * calendar_days_count(self.statistic_options.from, self.statistic_options.to) as f32)
+                        60.0 * 24.0,
+                        315.0f32.max(
+                            25. * calendar_days_count(
+                                self.statistic_options.from,
+                                self.statistic_options.to,
+                            ) as f32,
+                        ),
                     ));
 
                     ui.vertical(|ui| {
@@ -405,8 +418,12 @@ impl Frontend {
 
                         let mut i = 0usize;
 
-                        for year in self.statistic_options.from.year()..=self.statistic_options.to.year() {
-                            for month in self.statistic_options.from.month()..=self.statistic_options.to.month() {
+                        for year in
+                            self.statistic_options.from.year()..=self.statistic_options.to.year()
+                        {
+                            for month in self.statistic_options.from.month()
+                                ..=self.statistic_options.to.month()
+                            {
                                 let from = if first_year_first_month {
                                     first_year_first_month = false;
 
@@ -415,7 +432,9 @@ impl Frontend {
                                     1
                                 };
 
-                                let to = if year == self.statistic_options.to.year() && month == self.statistic_options.to.month() {
+                                let to = if year == self.statistic_options.to.year()
+                                    && month == self.statistic_options.to.month()
+                                {
                                     self.statistic_options.to.day()
                                 } else {
                                     get_days_from_month(year, month)
@@ -465,10 +484,13 @@ impl Frontend {
 
                                             length += desired_size.x;
 
-                                            let (rect, response) =
-                                                ui.allocate_exact_size(desired_size, egui::Sense::click());
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                desired_size,
+                                                egui::Sense::click(),
+                                            );
 
-                                            let project = self.backend
+                                            let project = self
+                                                .backend
                                                 .projects
                                                 .get(&record.project_id)
                                                 .unwrap()
@@ -515,17 +537,15 @@ impl Frontend {
                 self.statistic_options.scroll_offset_x = bars_block.state.offset.x;
                 self.statistic_options.scroll_offset_y = bars_block.state.offset.y;
             });
-
         });
-
-
 
         ui.set_style(style);
     }
 }
 
-
-//! Maximized Time Tracker block
+/**
+    Maximized Time Tracker block
+**/
 
 #[derive(Default)]
 struct TimeTrackerOptions {
@@ -535,7 +555,10 @@ struct TimeTrackerOptions {
 impl Frontend {
     fn time_tracker_build(&mut self, ui: &mut Ui) {
         ui.horizontal_top(|ui| {
-            ui.label(format!("Current work: {}", self.time_tracker_options.current_label));
+            ui.label(format!(
+                "Current work: {}",
+                self.time_tracker_options.current_label
+            ));
 
             let mut visuals = ui.ctx().style().visuals.clone();
 
@@ -544,9 +567,7 @@ impl Frontend {
                     ui.selectable_value(&mut visuals, Visuals::light(), "☀");
                     ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
 
-                    if self.backend.current_subject.is_some()
-                        && ui.button("⬇").clicked()
-                    {
+                    if self.backend.current_subject.is_some() && ui.button("⬇").clicked() {
                         self.current_display_mode = DisplayMode::Minimal;
                     }
 
@@ -719,8 +740,9 @@ impl Frontend {
     }
 }
 
-
-//! Minimized Time Tracker block
+/**
+    Minimized Time Tracker block
+**/
 
 #[derive(Default)]
 struct MinimalTrackerOptions {}
@@ -751,14 +773,15 @@ impl Frontend {
     }
 }
 
-
-//! TO DO block
+/**
+    TO DO block
+**/
 
 #[derive(Default)]
 struct TodoOptions {}
 
 impl Frontend {
-    fn todo_build(&mut self, ui: &mut Ui){
+    fn todo_build(&mut self, ui: &mut Ui) {
         ui.horizontal_top(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                 ui.horizontal(|ui| {

@@ -9,7 +9,9 @@ use eframe::egui::{Align, Layout, RichText, ScrollArea, Ui, Visuals};
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
+
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
+
 
 pub struct Frontend {
     backend: Backend,

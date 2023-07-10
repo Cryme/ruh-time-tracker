@@ -7,6 +7,7 @@ use eframe::egui::scroll_area::ScrollBarVisibility;
 use eframe::egui::{Color32, FontId, RichText, Rounding, ScrollArea, Ui, Vec2};
 use eframe::epaint::RectShape;
 
+
 pub fn build_statistic(
     ui: &mut Ui,
     records: Vec<Vec<HistoryRecord>>,

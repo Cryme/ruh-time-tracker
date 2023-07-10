@@ -5,7 +5,6 @@
 mod backend;
 mod frontend;
 mod history;
-mod statistic;
 mod util;
 
 use crate::frontend::{DisplayMode, Frontend};

@@ -77,19 +77,7 @@ impl Backend {
             }
         }
 
-        Self {
-            projects: HashMap::new(),
-            current_project: None,
-            current_subject: None,
-            current_todo_project: None,
-            working_mode: Default::default(),
-            current_session_duration: Duration::default(),
-            last_session_subject_id: Uuid::new_v4(),
-            last_save: SystemTime::now(),
-            history: History::new(),
-            todos: HashMap::new(),
-            dirty: false,
-        }
+        Self::default()
     }
 
     pub fn mark_dirty(&mut self) {
@@ -218,6 +206,24 @@ impl Backend {
             if self.last_session_subject_id != subject.lock().unwrap().id {
                 self.current_session_duration = Duration::ZERO;
             }
+        }
+    }
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Self {
+            projects: HashMap::new(),
+            current_project: None,
+            current_subject: None,
+            current_todo_project: None,
+            working_mode: Default::default(),
+            current_session_duration: Duration::default(),
+            last_session_subject_id: Uuid::new_v4(),
+            last_save: SystemTime::now(),
+            history: History::new(),
+            todos: HashMap::new(),
+            dirty: false,
         }
     }
 }

@@ -1,41 +1,49 @@
 use crate::backend::{Backend, WorkingMode};
 use crate::custom_window_frame;
-use crate::statistic::build_statistic;
-use crate::util::format_duration;
+use crate::util::{calendar_days_count, format_duration, format_number, get_days_from_month};
 
-use chrono::{DateTime, Datelike, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use eframe::egui;
-use eframe::egui::{Align, Layout, RichText, ScrollArea, Ui, Visuals};
+use eframe::egui::{Align, Color32, FontId, Layout, RichText, Rounding, ScrollArea, Ui, Vec2, Visuals};
 use std::time::{Duration, SystemTime};
+use eframe::egui::scroll_area::ScrollBarVisibility;
+use eframe::epaint::RectShape;
 use uuid::Uuid;
 
 
 const SAVE_PERIOD_SECONDS: u64 = 10_000;
 
 
-pub struct Frontend {
-    backend: Backend,
-    current_dialog: CurrentDialog,
-    current_label: String,
-    dialog_buffer: String,
-    current_display_mode: DisplayMode,
-    offset: f32,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub enum DisplayMode {
+    #[default]
     Time,
     Minimal,
     Statistic,
     Todo,
 }
 
+#[derive(Default)]
 enum CurrentDialog {
+    #[default]
     None,
     AddProject,
     AddSubject,
     AddTodoProject,
     AddTodoSubject,
+}
+
+#[derive(Default)]
+pub struct Frontend {
+    backend: Backend,
+
+    current_display_mode: DisplayMode,
+
+    dialog_options: DialogOptions,
+    time_tracker_options: TimeTrackerOptions,
+    minimal_time_tracker_options: MinimalTrackerOptions,
+    todo_options: TodoOptions,
+    statistic_options: StatisticOptions,
 }
 
 impl Frontend {
@@ -48,15 +56,569 @@ impl Frontend {
 
         Self {
             backend: Backend::load(),
-            current_display_mode: DisplayMode::Time,
-            current_dialog: CurrentDialog::None,
-            dialog_buffer: "".to_string(),
-            current_label: "".to_string(),
-            offset: 0.,
+            .. Self::default()
         }
     }
+}
 
-    fn build_projects(&mut self, ui: &mut Ui) {
+impl eframe::App for Frontend {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        match self.current_display_mode {
+            DisplayMode::Statistic => {
+                custom_window_frame(ctx, frame, "_", self.current_display_mode, |ui: &mut Ui| {
+                    self.build_statistic(ui);
+                });
+            }
+
+            DisplayMode::Time => {
+                custom_window_frame(ctx, frame, "_", self.current_display_mode, |ui: &mut Ui| {
+                    self.time_tracker_build(ui);
+                });
+            }
+
+            DisplayMode::Todo => {
+                custom_window_frame(ctx, frame, "_", self.current_display_mode, |ui: &mut Ui| {
+                    self.todo_build(ui);
+                });
+            }
+
+            DisplayMode::Minimal => {
+                custom_window_frame(ctx, frame, "_", self.current_display_mode, |ui| {
+                    self.minimal_time_tracker_build(ui);
+                });
+            }
+        }
+
+        self.backend.update_time();
+
+        self.dialog_build(ctx);
+    }
+
+    fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
+        egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
+    }
+}
+
+
+//! Dialog block
+
+#[derive(Default)]
+struct DialogOptions {
+    current_dialog: CurrentDialog,
+    buffer: String,
+}
+
+impl Frontend {
+    fn dialog_build(&mut self, ctx: &egui::Context){
+        match self.dialog_options.current_dialog {
+            CurrentDialog::None => {}
+
+            CurrentDialog::AddProject => {
+                egui::Window::new("Add Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_project(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
+            CurrentDialog::AddSubject => {
+                egui::Window::new("Add Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_subject(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
+            CurrentDialog::AddTodoProject => {
+                egui::Window::new("Add Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_todo_project(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
+            CurrentDialog::AddTodoSubject => {
+                egui::Window::new("Add Subject")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_todo_subject(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+        }
+    }
+}
+
+
+//! Statistics block
+
+struct StatisticOptions {
+    scroll_offset_x: f32,
+    scroll_offset_y: f32,
+    from: DateTime<Local>,
+    to: DateTime<Local>,
+}
+
+impl Default for StatisticOptions {
+    fn default() -> Self {
+        let s1 = DateTime::<Local>::from(SystemTime::now());
+        let from = Local
+            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() - 1, 0, 0, 0)
+            .unwrap();
+        let to = Local
+            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 1, 23, 59, 59)
+            .unwrap();
+
+        StatisticOptions{
+            scroll_offset_x: 0.,
+            scroll_offset_y: 0.,
+            from,
+            to
+        }
+    }
+}
+
+impl Frontend {
+    fn build_statistic(
+        &mut self,
+        ui: &mut Ui,
+    ) {
+        ui.horizontal_top(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(5.);
+                    egui::ComboBox::from_label("")
+                        .selected_text(format!("{:?}", self.current_display_mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Time,
+                                "Time",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Statistic,
+                                "Statistic",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Todo,
+                                "Todo",
+                            );
+                        });
+                });
+            });
+        });
+
+        let records = self.backend.history.get_ordered_records((self.statistic_options.from, self.statistic_options.to));
+        let style = ui.style().clone();
+        let mut new_style = (*style).clone();
+        new_style.spacing.item_spacing = Vec2::new(0., 0.);
+
+        ui.set_style(new_style);
+
+        ui.vertical(|ui| {
+            ui.push_id(3, |ui| {
+                ui.set_min_height(400.0);
+                ui.set_max_height(400.0);
+                ScrollArea::vertical().show(ui, |_ui| {});
+            });
+        });
+
+        ui.separator();
+
+        ui.push_id(7, |ui| {
+            let time_block = ScrollArea::horizontal()
+                .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                .scroll_offset(Vec2::new(self.statistic_options.scroll_offset_x, 0.));
+
+            time_block.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(50.);
+
+                    for i in 0..=24 {
+                        let c = ui.label(
+                            RichText::new(if i < 10 {
+                                format!("0{i}")
+                            } else {
+                                format!("{i}")
+                            })
+                                .font(FontId::proportional(12.0)),
+                        );
+                        if i < 24 {
+                            ui.add_space(60.0 - c.rect.size().x)
+                        }
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.add_space(50.);
+                    let (rect, _response) =
+                        ui.allocate_exact_size(egui::vec2(2., 10.0), egui::Sense::click());
+
+                    let mut ident = rect.size().x;
+
+                    ui.painter().add(RectShape {
+                        rect,
+                        rounding: Rounding::same(1.0),
+                        fill: Color32::LIGHT_GRAY,
+                        stroke: Default::default(),
+                    });
+
+                    for _ in 0..24 {
+                        ui.add_space(60.0 - ident);
+
+                        let (rect, _response) =
+                            ui.allocate_exact_size(egui::vec2(2., 10.0), egui::Sense::click());
+
+                        ident = rect.size().x;
+
+                        ui.painter().add(RectShape {
+                            rect,
+                            rounding: Rounding::same(1.0),
+                            fill: Color32::LIGHT_GRAY,
+                            stroke: Default::default(),
+                        });
+                    }
+                });
+            });
+        });
+
+        ui.horizontal(|ui| {
+            ui.set_min_height(320.);
+            ui.set_max_height(320.);
+
+            ui.push_id(5, |ui| {
+                ui.set_min_width(50.);
+                ui.set_max_width(50.);
+
+                let date_block = ScrollArea::vertical()
+                    .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                    .scroll_offset(Vec2::new(0., self.statistic_options.scroll_offset_y));
+
+                date_block.show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        let mut first_year_first_month = true;
+
+                        for year in self.statistic_options.from.year()..=self.statistic_options.to.year() {
+                            //TODO: fix month
+                            for month in self.statistic_options.from.month()..=self.statistic_options.to.month() {
+                                let from = if first_year_first_month {
+                                    first_year_first_month = false;
+
+                                    self.statistic_options.from.day()
+                                } else {
+                                    1
+                                };
+
+                                let to = if year == self.statistic_options.to.year() && month == self.statistic_options.to.month() {
+                                    self.statistic_options.to.day()
+                                } else {
+                                    get_days_from_month(year, month)
+                                };
+
+                                for day in from..=to {
+                                    ui.horizontal(|ui| {
+                                        ui.set_min_height(25.);
+                                        ui.set_max_height(25.);
+
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{}/{}",
+                                                format_number(day),
+                                                format_number(month)
+                                            ))
+                                                .font(FontId::proportional(13.0)),
+                                        );
+                                    });
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+
+            ui.push_id(6, |ui| {
+                let bars_block = ScrollArea::both().show(ui, |ui| {
+                    ui.set_min_size(Vec2::new(
+                        60.0*24.0,
+                        315.0f32.max(25. * calendar_days_count(self.statistic_options.from, self.statistic_options.to) as f32)
+                    ));
+
+                    ui.vertical(|ui| {
+                        let mut first_year_first_month = true;
+
+                        let mut i = 0usize;
+
+                        for year in self.statistic_options.from.year()..=self.statistic_options.to.year() {
+                            for month in self.statistic_options.from.month()..=self.statistic_options.to.month() {
+                                let from = if first_year_first_month {
+                                    first_year_first_month = false;
+
+                                    self.statistic_options.from.day()
+                                } else {
+                                    1
+                                };
+
+                                let to = if year == self.statistic_options.to.year() && month == self.statistic_options.to.month() {
+                                    self.statistic_options.to.day()
+                                } else {
+                                    get_days_from_month(year, month)
+                                };
+
+                                for _ in from..=to {
+                                    let mut previous_ending = None;
+                                    let mut space_added = false;
+                                    let mut length = 0_f32;
+
+                                    ui.horizontal(|ui| {
+                                        ui.set_min_height(25.);
+                                        ui.set_max_height(25.);
+
+                                        for record in records.get(i).unwrap() {
+                                            if !space_added {
+                                                let d = record.start_date.hour() as f32 * 60.0
+                                                    + record.start_date.minute() as f32;
+                                                ui.add_space(d);
+                                                length += d;
+
+                                                space_added = true;
+                                            }
+
+                                            let duration = record.get_duration();
+
+                                            if duration.num_minutes() <= 0 {
+                                                continue;
+                                            }
+
+                                            if let Some(prev) = previous_ending {
+                                                let dur = record
+                                                    .start_date
+                                                    .signed_duration_since(prev)
+                                                    .num_minutes();
+
+                                                if dur > 0 {
+                                                    ui.add_space(dur as f32);
+                                                    length += dur as f32;
+                                                }
+                                            }
+
+                                            let desired_size = egui::vec2(
+                                                record.get_duration().num_minutes() as f32,
+                                                15.0,
+                                            );
+
+                                            length += desired_size.x;
+
+                                            let (rect, response) =
+                                                ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+                                            let project = self.backend
+                                                .projects
+                                                .get(&record.project_id)
+                                                .unwrap()
+                                                .lock()
+                                                .unwrap();
+                                            let subject = project
+                                                .subjects
+                                                .get(&record.subject_id)
+                                                .unwrap()
+                                                .lock()
+                                                .unwrap();
+
+                                            response.on_hover_text(format!(
+                                                "{} : {}",
+                                                project.name, subject.name
+                                            ));
+
+                                            ui.painter().add(RectShape {
+                                                rect,
+                                                rounding: Rounding::same(4.0),
+                                                fill: Color32::from_rgb(
+                                                    project.color.0,
+                                                    project.color.1,
+                                                    project.color.2,
+                                                ),
+                                                stroke: Default::default(),
+                                            });
+
+                                            previous_ending = Some(record.end_date);
+                                        }
+
+                                        if length < 60.0 * 24.0 {
+                                            ui.add_space(60.0 * 24.0 - length);
+                                        }
+                                    });
+
+                                    i += 1;
+                                }
+                            }
+                        }
+                    });
+                });
+
+                self.statistic_options.scroll_offset_x = bars_block.state.offset.x;
+                self.statistic_options.scroll_offset_y = bars_block.state.offset.y;
+            });
+
+        });
+
+
+
+        ui.set_style(style);
+    }
+}
+
+
+//! Maximized Time Tracker block
+
+#[derive(Default)]
+struct TimeTrackerOptions {
+    current_label: String,
+}
+
+impl Frontend {
+    fn time_tracker_build(&mut self, ui: &mut Ui) {
+        ui.horizontal_top(|ui| {
+            ui.label(format!("Current work: {}", self.time_tracker_options.current_label));
+
+            let mut visuals = ui.ctx().style().visuals.clone();
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut visuals, Visuals::light(), "☀");
+                    ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
+
+                    if self.backend.current_subject.is_some()
+                        && ui.button("⬇").clicked()
+                    {
+                        self.current_display_mode = DisplayMode::Minimal;
+                    }
+
+                    egui::ComboBox::from_label("")
+                        .selected_text(format!("{:?}", self.current_display_mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Time,
+                                "Time",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Statistic,
+                                "Statistic",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Todo,
+                                "Todo",
+                            );
+                        });
+                });
+            });
+
+            ui.ctx().set_visuals(visuals);
+        });
+
+        ui.horizontal(|ui| {
+            ui.set_min_height(55.0);
+            ui.set_max_height(55.0);
+
+            if self.backend.current_subject.is_some() {
+                match self.backend.working_mode {
+                    WorkingMode::Idle => {
+                        if ui.button("START").clicked() {
+                            self.time_tracker_start_subject()
+                        }
+                    }
+                    WorkingMode::InProgress(_) => {
+                        if ui.button("PAUSE").clicked() {
+                            self.time_tracker_stop_subject(false);
+                        }
+                    }
+                }
+                ui.label(format_duration(self.backend.current_session_duration));
+            }
+        });
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.set_min_height(290.0);
+            ui.set_max_height(290.0);
+
+            ui.push_id(1, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    self.time_tracker_build_projects(ui);
+                });
+            });
+
+            ui.separator();
+
+            ui.push_id(2, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    self.time_tracker_build_subjects(ui);
+                });
+            });
+        });
+    }
+
+    fn time_tracker_build_projects(&mut self, ui: &mut Ui) {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
@@ -93,12 +655,12 @@ impl Frontend {
             }
 
             if ui.button("   +   ").clicked() {
-                self.current_dialog = CurrentDialog::AddProject;
+                self.dialog_options.current_dialog = CurrentDialog::AddProject;
             }
         });
     }
 
-    fn build_subjects(&mut self, ui: &mut Ui) {
+    fn time_tracker_build_subjects(&mut self, ui: &mut Ui) {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
@@ -129,7 +691,7 @@ impl Frontend {
 
                     if ui.button(text).clicked() {
                         if current_id != r_subject.id {
-                            self.stop_subject(true);
+                            self.time_tracker_stop_subject(true);
                         }
                         self.backend.set_current_subject(Some(subject.clone()));
                     }
@@ -141,12 +703,111 @@ impl Frontend {
             }
 
             if ui.button("   +   ").clicked() {
-                self.current_dialog = CurrentDialog::AddSubject;
+                self.dialog_options.current_dialog = CurrentDialog::AddSubject;
             }
         });
     }
 
-    fn build_todo_projects(&mut self, ui: &mut Ui) {
+    fn time_tracker_start_subject(&mut self) {
+        self.backend.start_subject();
+        self.time_tracker_options.current_label = self.backend.get_current_work_name();
+    }
+
+    fn time_tracker_stop_subject(&mut self, force: bool) {
+        self.backend.stop_subject(force);
+        self.time_tracker_options.current_label = "".to_string();
+    }
+}
+
+
+//! Minimized Time Tracker block
+
+#[derive(Default)]
+struct MinimalTrackerOptions {}
+
+impl Frontend {
+    fn minimal_time_tracker_build(&mut self, ui: &mut Ui) {
+        ui.vertical_centered(|ui| {
+            ui.horizontal(|ui| {
+                match self.backend.working_mode {
+                    WorkingMode::Idle => {
+                        if ui.button("START").clicked() {
+                            self.time_tracker_start_subject()
+                        }
+                    }
+                    WorkingMode::InProgress(_) => {
+                        if ui.button("PAUSE").clicked() {
+                            self.time_tracker_stop_subject(false);
+                        }
+                    }
+                }
+
+                if ui.button("⬆").clicked() {
+                    self.current_display_mode = DisplayMode::Time;
+                }
+            });
+            ui.label(format_duration(self.backend.current_session_duration));
+        });
+    }
+}
+
+
+//! TO DO block
+
+#[derive(Default)]
+struct TodoOptions {}
+
+impl Frontend {
+    fn todo_build(&mut self, ui: &mut Ui){
+        ui.horizontal_top(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_label("")
+                        .selected_text(format!("{:?}", self.current_display_mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Time,
+                                "Time",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Statistic,
+                                "Statistic",
+                            );
+                            ui.selectable_value(
+                                &mut self.current_display_mode,
+                                DisplayMode::Todo,
+                                "Todo",
+                            );
+                        });
+                });
+            });
+        });
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.set_min_height(353.0);
+            ui.set_max_height(353.0);
+
+            ui.push_id(1, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    self.todo_build_projects(ui);
+                });
+            });
+
+            ui.separator();
+
+            ui.push_id(2, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    self.todo_build_subjects(ui);
+                });
+            });
+        });
+    }
+
+    fn todo_build_projects(&mut self, ui: &mut Ui) {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
@@ -181,12 +842,12 @@ impl Frontend {
             }
 
             if ui.button("   +   ").clicked() {
-                self.current_dialog = CurrentDialog::AddTodoProject;
+                self.dialog_options.current_dialog = CurrentDialog::AddTodoProject;
             }
         });
     }
 
-    fn build_todo_subjects(&mut self, ui: &mut Ui) {
+    fn todo_build_subjects(&mut self, ui: &mut Ui) {
         ui.set_min_width(400.0);
         ui.set_max_width(400.0);
 
@@ -219,336 +880,8 @@ impl Frontend {
             }
 
             if ui.button("   +   ").clicked() {
-                self.current_dialog = CurrentDialog::AddTodoSubject;
+                self.dialog_options.current_dialog = CurrentDialog::AddTodoSubject;
             }
         });
-    }
-
-    fn start_subject(&mut self) {
-        self.backend.start_subject();
-        self.current_label = self.backend.get_current_work_name();
-    }
-
-    fn stop_subject(&mut self, force: bool) {
-        self.backend.stop_subject(force);
-        self.current_label = "".to_string();
-    }
-}
-
-impl eframe::App for Frontend {
-    fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
-        egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
-    }
-
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let mode = self.current_display_mode;
-
-        match self.current_display_mode {
-            DisplayMode::Statistic => {
-                let s1 = DateTime::<Local>::from(SystemTime::now());
-                let from = Local
-                    .with_ymd_and_hms(s1.year(), s1.month(), s1.day() - 2, 0, 0, 0)
-                    .unwrap();
-                let to = Local
-                    .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 2, 23, 59, 59)
-                    .unwrap();
-
-                let range: (DateTime<Local>, DateTime<Local>) = (from, to);
-
-                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.add_space(5.);
-                                egui::ComboBox::from_label("")
-                                    .selected_text(format!("{:?}", self.current_display_mode))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Time,
-                                            "Time",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Statistic,
-                                            "Statistic",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Todo,
-                                            "Todo",
-                                        );
-                                    });
-                            });
-                        });
-                    });
-
-                    build_statistic(
-                        ui,
-                        self.backend.history.get_ordered_records(range),
-                        &self.backend,
-                        &mut self.offset,
-                        range,
-                    );
-                });
-            }
-
-            DisplayMode::Time => {
-                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.label(format!("Current work: {}", self.current_label,));
-
-                        let mut visuals = ui.ctx().style().visuals.clone();
-
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.selectable_value(&mut visuals, Visuals::light(), "☀");
-                                ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
-
-                                if self.backend.current_subject.is_some()
-                                    && ui.button("⬇").clicked()
-                                {
-                                    self.current_display_mode = DisplayMode::Minimal;
-                                }
-
-                                egui::ComboBox::from_label("")
-                                    .selected_text(format!("{:?}", self.current_display_mode))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Time,
-                                            "Time",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Statistic,
-                                            "Statistic",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Todo,
-                                            "Todo",
-                                        );
-                                    });
-                            });
-                        });
-
-                        ui.ctx().set_visuals(visuals);
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(55.0);
-                        ui.set_max_height(55.0);
-
-                        if self.backend.current_subject.is_some() {
-                            match self.backend.working_mode {
-                                WorkingMode::Idle => {
-                                    if ui.button("START").clicked() {
-                                        self.start_subject()
-                                    }
-                                }
-                                WorkingMode::InProgress(_) => {
-                                    if ui.button("PAUSE").clicked() {
-                                        self.stop_subject(false);
-                                    }
-                                }
-                            }
-                            ui.label(format_duration(self.backend.current_session_duration));
-                        }
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(290.0);
-                        ui.set_max_height(290.0);
-
-                        ui.push_id(1, |ui| {
-                            ScrollArea::vertical().show(ui, |ui| {
-                                self.build_projects(ui);
-                            });
-                        });
-
-                        ui.separator();
-
-                        ui.push_id(2, |ui| {
-                            ScrollArea::vertical().show(ui, |ui| {
-                                self.build_subjects(ui);
-                            });
-                        });
-                    });
-                });
-            }
-
-            DisplayMode::Todo => {
-                custom_window_frame(ctx, frame, "_", mode, |ui: &mut Ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                            ui.horizontal(|ui| {
-                                egui::ComboBox::from_label("")
-                                    .selected_text(format!("{:?}", self.current_display_mode))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Time,
-                                            "Time",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Statistic,
-                                            "Statistic",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.current_display_mode,
-                                            DisplayMode::Todo,
-                                            "Todo",
-                                        );
-                                    });
-                            });
-                        });
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(353.0);
-                        ui.set_max_height(353.0);
-
-                        ui.push_id(1, |ui| {
-                            ScrollArea::vertical().show(ui, |ui| {
-                                self.build_todo_projects(ui);
-                            });
-                        });
-
-                        ui.separator();
-
-                        ui.push_id(2, |ui| {
-                            ScrollArea::vertical().show(ui, |ui| {
-                                self.build_todo_subjects(ui);
-                            });
-                        });
-                    });
-                });
-            }
-
-            DisplayMode::Minimal => {
-                custom_window_frame(ctx, frame, "_", mode, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.horizontal(|ui| {
-                            match self.backend.working_mode {
-                                WorkingMode::Idle => {
-                                    if ui.button("START").clicked() {
-                                        self.start_subject()
-                                    }
-                                }
-                                WorkingMode::InProgress(_) => {
-                                    if ui.button("PAUSE").clicked() {
-                                        self.stop_subject(false);
-                                    }
-                                }
-                            }
-
-                            if ui.button("⬆").clicked() {
-                                self.current_display_mode = DisplayMode::Time;
-                            }
-                        });
-                        ui.label(format_duration(self.backend.current_session_duration));
-                    });
-                });
-            }
-        }
-
-        self.backend.update_time();
-
-        match self.current_dialog {
-            CurrentDialog::None => {}
-            CurrentDialog::AddProject => {
-                egui::Window::new("Add Project")
-                    .collapsible(false)
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
-
-                            if ui.button("Cancel").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.dialog_buffer = "".to_string();
-                            }
-
-                            if ui.button("Add").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.backend.add_project(&self.dialog_buffer);
-                                self.dialog_buffer = "".to_string();
-                            }
-                        });
-                    });
-            }
-
-            CurrentDialog::AddSubject => {
-                egui::Window::new("Add Project")
-                    .collapsible(false)
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
-
-                            if ui.button("Cancel").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.dialog_buffer = "".to_string();
-                            }
-
-                            if ui.button("Add").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.backend.add_subject(&self.dialog_buffer);
-                                self.dialog_buffer = "".to_string();
-                            }
-                        });
-                    });
-            }
-
-            CurrentDialog::AddTodoProject => {
-                egui::Window::new("Add Project")
-                    .collapsible(false)
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
-
-                            if ui.button("Cancel").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.dialog_buffer = "".to_string();
-                            }
-
-                            if ui.button("Add").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.backend.add_todo_project(&self.dialog_buffer);
-                                self.dialog_buffer = "".to_string();
-                            }
-                        });
-                    });
-            }
-
-            CurrentDialog::AddTodoSubject => {
-                egui::Window::new("Add Subject")
-                    .collapsible(false)
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.dialog_buffer));
-
-                            if ui.button("Cancel").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.dialog_buffer = "".to_string();
-                            }
-
-                            if ui.button("Add").clicked() {
-                                self.current_dialog = CurrentDialog::None;
-                                self.backend.add_todo_subject(&self.dialog_buffer);
-                                self.dialog_buffer = "".to_string();
-                            }
-                        });
-                    });
-            }
-        }
     }
 }

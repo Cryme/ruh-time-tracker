@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{Datelike, DateTime, Local, NaiveDate};
 use std::ops::Rem;
 use std::time::Duration;
 
@@ -146,4 +146,11 @@ pub fn get_days_from_month(year: i32, month: u32) -> u32 {
     .unwrap()
     .signed_duration_since(NaiveDate::from_ymd_opt(year, month, 1).unwrap())
     .num_days() as u32
+}
+
+pub fn calendar_days_count(from: DateTime<Local>, to: DateTime<Local>) -> u32 {
+    let rf = NaiveDate::from_ymd_opt(from.year(), from.month(), from.day()).unwrap();
+    let rt = NaiveDate::from_ymd_opt(to.year(), to.month(), to.day()).unwrap();
+
+    rt.signed_duration_since(rf).num_days() as u32
 }

@@ -1,13 +1,13 @@
 use crate::backend::{Backend, WorkingMode};
 use crate::custom_window_frame;
-use crate::util::{calendar_days_count, format_duration, format_number, get_days_from_month};
+use crate::util::{calendar_days_count, format_chrono_duration, format_duration, format_number, get_days_from_month};
+use std::collections::HashMap;
+use std::ops::{Add, Sub};
 
-use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
+use chrono::{DateTime, Datelike, Days, Local, Month, TimeZone, Timelike, LocalResult};
 use eframe::egui;
 use eframe::egui::scroll_area::ScrollBarVisibility;
-use eframe::egui::{
-    Align, Color32, FontId, Layout, RichText, Rounding, ScrollArea, Ui, Vec2, Visuals,
-};
+use eframe::egui::{Align, Color32, FontId, Key, Label, Layout, RichText, Rounding, ScrollArea, TextEdit, Ui, Vec2, Visuals};
 use eframe::epaint::RectShape;
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
@@ -23,7 +23,7 @@ pub enum DisplayMode {
     Todo,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum CurrentDialog {
     #[default]
     None,
@@ -39,6 +39,8 @@ pub struct Frontend {
 
     current_display_mode: DisplayMode,
 
+    hotkeys_blocked: bool,
+
     dialog_options: DialogOptions,
     time_tracker_options: TimeTrackerOptions,
     minimal_time_tracker_options: MinimalTrackerOptions,
@@ -47,6 +49,14 @@ pub struct Frontend {
 }
 
 impl Frontend {
+    fn set_display_mode(&mut self, mode: DisplayMode) {
+        if mode == DisplayMode::Minimal {
+            self.minimal_time_tracker_options.prev_mode = self.current_display_mode;
+        }
+
+        self.current_display_mode = mode;
+    }
+
     pub fn init(cc: &eframe::CreationContext<'_>) -> Self {
         let context = cc.egui_ctx.clone();
         std::thread::spawn(move || loop {
@@ -92,10 +102,70 @@ impl eframe::App for Frontend {
         self.backend.update_time();
 
         self.dialog_build(ctx);
+
+        if !self.hotkeys_blocked && self.dialog_options.current_dialog == CurrentDialog::None {
+            if ctx.input(|i| i.key_pressed(Key::Num1)) {
+                self.set_display_mode(DisplayMode::Time);
+            } else if ctx.input(|i| i.key_pressed(Key::Num2)) {
+                self.set_display_mode(DisplayMode::Statistic);
+            } else if ctx.input(|i| i.key_pressed(Key::Num3)) {
+                self.set_display_mode(DisplayMode::Todo);
+            } else if ctx.input(|i| i.key_pressed(Key::D)) {
+                self.set_display_mode(DisplayMode::Minimal);
+            }
+        }
     }
 
     fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
         egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
+    }
+}
+
+/**
+Menu block
+ **/
+
+#[derive(Default)]
+struct MenuOptions {}
+
+impl Frontend {
+    fn build_menu(&mut self, ui: &mut Ui) {
+        match self.current_display_mode {
+            DisplayMode::Todo | DisplayMode::Statistic | DisplayMode::Time => {
+                ui.horizontal_top(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add_space(5.);
+                            egui::ComboBox::from_label("")
+                                .selected_text(format!("{:?}", self.current_display_mode))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.current_display_mode,
+                                        DisplayMode::Time,
+                                        "Time",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.current_display_mode,
+                                        DisplayMode::Statistic,
+                                        "Statistic",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.current_display_mode,
+                                        DisplayMode::Todo,
+                                        "Todo",
+                                    );
+                                });
+                        });
+                    });
+                });
+            }
+
+            DisplayMode::Minimal => {
+                if ui.button("⬆").clicked() {
+                    self.set_display_mode(self.minimal_time_tracker_options.prev_mode);
+                }
+            }
+        }
     }
 }
 
@@ -212,8 +282,55 @@ impl Frontend {
 struct StatisticOptions {
     scroll_offset_x: f32,
     scroll_offset_y: f32,
+    label_from: SimpleDate,
+    label_to: SimpleDate,
     from: DateTime<Local>,
     to: DateTime<Local>,
+    current_project_id: Option<Uuid>,
+    invalid_from: bool,
+    invalid_to: bool,
+}
+
+struct SimpleDate {
+    year: String,
+    month: Month,
+    day: String,
+}
+
+impl TryInto<DateTime<Local>> for &SimpleDate{
+    type Error = ();
+
+    fn try_into(self) -> Result<DateTime<Local>, Self::Error> {
+        let Ok(year) = self.year.parse::<i32>() else {
+            return Err(());
+        };
+        let Ok(day) = self.day.parse::<u32>() else {
+            return Err(());
+        };
+
+        let LocalResult::Single(res) = Local.with_ymd_and_hms(year, self.month.number_from_month(), day, 0, 0, 0) else {
+            return Err(())
+        };
+
+        Ok(res)
+    }
+}
+
+impl StatisticOptions {
+    fn update_from_labels(&mut self){
+        let from: Result<DateTime<Local>, ()> = (&self.label_from).try_into();
+        let to: Result<DateTime<Local>, ()> = (&self.label_to).try_into();
+
+        self.invalid_from = from.is_err();
+        self.invalid_to = to.is_err();
+
+        if let Ok(f) = from {
+            if let Ok(t) = to {
+                self.from = f;
+                self.to = t.checked_add_days(Days::new(1)).unwrap().sub(chrono::Duration::milliseconds(100));
+            }
+        }
+    }
 }
 
 impl Default for StatisticOptions {
@@ -223,62 +340,247 @@ impl Default for StatisticOptions {
             .with_ymd_and_hms(s1.year(), s1.month(), s1.day() - 1, 0, 0, 0)
             .unwrap();
         let to = Local
-            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 1, 23, 59, 59)
+            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 1, 0, 0, 0)
             .unwrap();
 
         StatisticOptions {
             scroll_offset_x: 0.,
             scroll_offset_y: 0.,
+            label_from: SimpleDate {
+                year: from.year().to_string(),
+                month: Month::try_from(from.month() as u8).unwrap(),
+                day: from.day().to_string(),
+            },
+            label_to: SimpleDate {
+                year: to.year().to_string(),
+                month: Month::try_from(to.month() as u8).unwrap(),
+                day: to.day().to_string(),
+            },
+            invalid_from: false,
+            invalid_to: false,
             from,
             to,
+            current_project_id: None,
         }
     }
 }
 
 impl Frontend {
     fn build_statistic(&mut self, ui: &mut Ui) {
-        ui.horizontal_top(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(5.);
-                    egui::ComboBox::from_label("")
-                        .selected_text(format!("{:?}", self.current_display_mode))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Time,
-                                "Time",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Statistic,
-                                "Statistic",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Todo,
-                                "Todo",
-                            );
-                        });
-                });
-            });
-        });
+        self.build_menu(ui);
 
-        let records = self
-            .backend
-            .history
-            .get_ordered_records((self.statistic_options.from, self.statistic_options.to));
         let style = ui.style().clone();
         let mut new_style = (*style).clone();
         new_style.spacing.item_spacing = Vec2::new(0., 0.);
 
         ui.set_style(new_style);
 
+        ui.horizontal_top(|ui| {
+            ui.add_space(400.);
+
+            ui.set_max_height(30.);
+            {
+                let y = ui.add_sized((50., 15.), TextEdit::singleline(&mut self.statistic_options.label_from.year));
+
+                if y.gained_focus(){
+                    self.hotkeys_blocked = true;
+                }
+
+                if y.lost_focus() {
+                    self.hotkeys_blocked = false;
+                    self.statistic_options.update_from_labels();
+                }
+
+                ui.add_space(2.);
+
+                ui.push_id(9, |ui| {
+                    if egui::ComboBox::from_label("")
+                        .selected_text(self.statistic_options.label_from.month.name())
+                        .show_ui(ui, |ui| {
+                            for month in 1..=12 {
+                                let m = Month::try_from(month).unwrap();
+                                ui.selectable_value(
+                                    &mut self.statistic_options.label_from.month,
+                                    m,
+                                    m.name(),
+                                );
+                            }
+                        }).response.changed() {
+                        self.statistic_options.update_from_labels();
+                    };
+                });
+
+                ui.add_space(2.);
+
+                let d = ui.add_sized((30., 15.), TextEdit::singleline(&mut self.statistic_options.label_from.day));
+
+                if d.gained_focus(){
+                    self.hotkeys_blocked = true;
+                }
+
+                if d.lost_focus() {
+                    self.hotkeys_blocked = false;
+                    self.statistic_options.update_from_labels();
+                }
+            }
+
+            ui.add_space(5.);
+            ui.add_sized((5., 15.), Label::new(":"));
+            ui.add_space(5.);
+
+            {
+                let y = ui.add_sized((50., 15.), TextEdit::singleline(&mut self.statistic_options.label_to.year));
+
+                if y.gained_focus(){
+                    self.hotkeys_blocked = true;
+                }
+
+                if y.lost_focus() {
+                    self.hotkeys_blocked = false;
+                    self.statistic_options.update_from_labels();
+                }
+
+                ui.add_space(2.);
+
+
+                ui.push_id(10, |ui| {
+                    if egui::ComboBox::from_label("")
+                        .selected_text(self.statistic_options.label_to.month.name())
+                        .show_ui(ui, |ui| {
+                            for month in 1..=12 {
+                                let m = Month::try_from(month).unwrap();
+                                ui.selectable_value(
+                                    &mut self.statistic_options.label_to.month,
+                                    m,
+                                    m.name(),
+                                );
+                            }
+                        }).response.changed() {
+                        self.statistic_options.update_from_labels();
+                    };
+                });
+
+                ui.add_space(2.);
+
+                let d = ui.add_sized((30., 15.), TextEdit::singleline(&mut self.statistic_options.label_to.day));
+
+                if d.gained_focus(){
+                    self.hotkeys_blocked = true;
+                }
+
+                if d.lost_focus() {
+                    self.hotkeys_blocked = false;
+                    self.statistic_options.update_from_labels();
+                }
+            }
+        });
+
+        ui.add_space(10.);
+
+        let records = self
+            .backend
+            .history
+            .get_ordered_records((self.statistic_options.from, self.statistic_options.to));
+
         ui.vertical(|ui| {
             ui.push_id(3, |ui| {
                 ui.set_min_height(400.0);
                 ui.set_max_height(400.0);
-                ScrollArea::vertical().show(ui, |_ui| {});
+                ScrollArea::vertical().show(ui, |ui| {
+                    struct Summary {
+                        title: String,
+                        duration: chrono::Duration,
+                    }
+
+                    let mut summaries: HashMap<Uuid, Summary> = HashMap::new();
+                    let mut detailed: HashMap<Uuid, Summary> = HashMap::new();
+
+                    for record in self.backend.history.get_records(
+                        (self.statistic_options.from, self.statistic_options.to),
+                    ) {
+                        if let Some(id) = self.statistic_options.current_project_id {
+                            if id == record.project_id {
+                                if let Some(v) = detailed.get_mut(&record.subject_id) {
+                                    v.duration = v.duration.add(record.get_duration());
+                                } else {
+                                    detailed.insert(
+                                        record.subject_id,
+                                        Summary {
+                                            title: self.backend
+                                                .projects
+                                                .get(&record.project_id)
+                                                .unwrap()
+                                                .lock()
+                                                .unwrap()
+                                                .subjects
+                                                .get(&record.subject_id)
+                                                .unwrap()
+                                                .lock()
+                                                .unwrap()
+                                                .name
+                                                .clone(),
+                                            duration: record.get_duration(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+
+                        if let Some(v) = summaries.get_mut(&record.project_id) {
+                            v.duration = v.duration.add(record.get_duration());
+                        } else {
+                            summaries.insert(
+                                record.project_id,
+                                Summary {
+                                    title: self.backend
+                                        .projects
+                                        .get(&record.project_id)
+                                        .unwrap()
+                                        .lock()
+                                        .unwrap()
+                                        .name
+                                        .clone(),
+                                    duration: record.get_duration(),
+                                },
+                            );
+                        }
+                    }
+
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            let mut c: Vec<(&Uuid, &Summary)> = summaries.iter().collect();
+                            c.sort_by(|a, b| a.1.duration.cmp(&b.1.duration));
+
+                            for v in c {
+                                let mut text = RichText::new(&v.1.title);
+
+                                if self.statistic_options.current_project_id == Some(*v.0) {
+                                    text = text.strong();
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if ui.button(text).clicked() {
+                                        self.statistic_options.current_project_id = Some(*v.0);
+                                    }
+
+                                    ui.label(format!(" - {}", format_chrono_duration(v.1.duration)));
+                                });
+                            }
+                        });
+
+                        ui.add_space(215.);
+
+                        ui.vertical(|ui| {
+                            let mut c: Vec<&Summary> = detailed.values().collect();
+                            c.sort_by(|a, b| a.duration.cmp(&b.duration));
+
+                            for v in c {
+                                ui.label(format!("{} - {}", v.title, format_chrono_duration(v.duration)));
+                                ui.add_space(4.);
+                            }
+                        });
+                    });
+                });
             });
         });
 
@@ -560,40 +862,7 @@ impl Frontend {
                 self.time_tracker_options.current_label
             ));
 
-            let mut visuals = ui.ctx().style().visuals.clone();
-
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut visuals, Visuals::light(), "☀");
-                    ui.selectable_value(&mut visuals, Visuals::dark(), "🌙");
-
-                    if self.backend.current_subject.is_some() && ui.button("⬇").clicked() {
-                        self.current_display_mode = DisplayMode::Minimal;
-                    }
-
-                    egui::ComboBox::from_label("")
-                        .selected_text(format!("{:?}", self.current_display_mode))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Time,
-                                "Time",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Statistic,
-                                "Statistic",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Todo,
-                                "Todo",
-                            );
-                        });
-                });
-            });
-
-            ui.ctx().set_visuals(visuals);
+            self.build_menu(ui);
         });
 
         ui.horizontal(|ui| {
@@ -745,30 +1014,35 @@ impl Frontend {
 **/
 
 #[derive(Default)]
-struct MinimalTrackerOptions {}
+struct MinimalTrackerOptions {
+    prev_mode: DisplayMode,
+}
 
 impl Frontend {
     fn minimal_time_tracker_build(&mut self, ui: &mut Ui) {
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
-                match self.backend.working_mode {
-                    WorkingMode::Idle => {
-                        if ui.button("START").clicked() {
-                            self.time_tracker_start_subject()
+                if self.backend.current_subject.is_some() {
+                    match self.backend.working_mode {
+                        WorkingMode::Idle => {
+                            if ui.button("START").clicked() {
+                                self.time_tracker_start_subject()
+                            }
                         }
-                    }
-                    WorkingMode::InProgress(_) => {
-                        if ui.button("PAUSE").clicked() {
-                            self.time_tracker_stop_subject(false);
+                        WorkingMode::InProgress(_) => {
+                            if ui.button("PAUSE").clicked() {
+                                self.time_tracker_stop_subject(false);
+                            }
                         }
                     }
                 }
 
-                if ui.button("⬆").clicked() {
-                    self.current_display_mode = DisplayMode::Time;
-                }
+                self.build_menu(ui);
             });
-            ui.label(format_duration(self.backend.current_session_duration));
+
+            if self.backend.current_subject.is_some() {
+                ui.label(format_duration(self.backend.current_session_duration));
+            }
         });
     }
 }
@@ -782,31 +1056,7 @@ struct TodoOptions {}
 
 impl Frontend {
     fn todo_build(&mut self, ui: &mut Ui) {
-        ui.horizontal_top(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_label("")
-                        .selected_text(format!("{:?}", self.current_display_mode))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Time,
-                                "Time",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Statistic,
-                                "Statistic",
-                            );
-                            ui.selectable_value(
-                                &mut self.current_display_mode,
-                                DisplayMode::Todo,
-                                "Todo",
-                            );
-                        });
-                });
-            });
-        });
+        self.build_menu(ui);
 
         ui.separator();
 

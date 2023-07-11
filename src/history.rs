@@ -104,6 +104,20 @@ impl History {
 
         res
     }
+
+    pub fn get_records(
+        &self,
+        date_range: (DateTime<Local>, DateTime<Local>),
+    ) -> Vec<HistoryRecord> {
+        self.records
+            .values()
+            .filter(|v| {
+                v.start_date >= date_range.0
+                    && v.start_date < date_range.1
+            })
+            .copied()
+            .collect()
+    }
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]

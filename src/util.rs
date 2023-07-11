@@ -16,6 +16,20 @@ pub fn format_duration(duration: Duration) -> String {
         format_number(minutes as u32)
     )
 }
+pub fn format_chrono_duration(duration: chrono::Duration) -> String {
+    const HOUR_S: f64 = 60.0 * 60.0;
+
+    let spent = duration.num_seconds() as f64;
+
+    let hours = (spent / HOUR_S).trunc();
+    let minutes = (spent.rem(&HOUR_S) / 60.0).trunc();
+
+    format!(
+        " {}:{}",
+        format_number(hours as u32),
+        format_number(minutes as u32)
+    )
+}
 
 pub fn format_number<T>(number: T) -> String
 where

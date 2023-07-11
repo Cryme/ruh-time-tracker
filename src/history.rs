@@ -111,10 +111,7 @@ impl History {
     ) -> Vec<HistoryRecord> {
         self.records
             .values()
-            .filter(|v| {
-                v.start_date >= date_range.0
-                    && v.start_date < date_range.1
-            })
+            .filter(|v| v.start_date >= date_range.0 && v.start_date < date_range.1)
             .copied()
             .collect()
     }

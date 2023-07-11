@@ -1,13 +1,19 @@
 use crate::backend::{Backend, WorkingMode};
 use crate::custom_window_frame;
-use crate::util::{calendar_days_count, format_chrono_duration, format_duration, format_number, get_days_from_month};
+use crate::util::{
+    calendar_days_count, format_chrono_duration, format_duration, format_number,
+    get_days_from_month,
+};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 
-use chrono::{DateTime, Datelike, Days, Local, Month, TimeZone, Timelike, LocalResult};
+use chrono::{DateTime, Datelike, Days, Local, LocalResult, Month, TimeZone, Timelike};
 use eframe::egui;
 use eframe::egui::scroll_area::ScrollBarVisibility;
-use eframe::egui::{Align, Color32, FontId, Key, Label, Layout, RichText, Rounding, ScrollArea, TextEdit, Ui, Vec2, Visuals};
+use eframe::egui::{
+    Align, Color32, FontId, Key, Label, Layout, RichText, Rounding, ScrollArea, TextEdit, Ui, Vec2,
+    Visuals,
+};
 use eframe::epaint::RectShape;
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
@@ -104,11 +110,11 @@ impl eframe::App for Frontend {
         self.dialog_build(ctx);
 
         if !self.hotkeys_blocked && self.dialog_options.current_dialog == CurrentDialog::None {
-            if ctx.input(|i| i.key_pressed(Key::Num1)) {
+            if ctx.input(|i| i.key_pressed(Key::Q)) {
                 self.set_display_mode(DisplayMode::Time);
-            } else if ctx.input(|i| i.key_pressed(Key::Num2)) {
+            } else if ctx.input(|i| i.key_pressed(Key::W)) {
                 self.set_display_mode(DisplayMode::Statistic);
-            } else if ctx.input(|i| i.key_pressed(Key::Num3)) {
+            } else if ctx.input(|i| i.key_pressed(Key::E)) {
                 self.set_display_mode(DisplayMode::Todo);
             } else if ctx.input(|i| i.key_pressed(Key::D)) {
                 self.set_display_mode(DisplayMode::Minimal);
@@ -297,7 +303,7 @@ struct SimpleDate {
     day: String,
 }
 
-impl TryInto<DateTime<Local>> for &SimpleDate{
+impl TryInto<DateTime<Local>> for &SimpleDate {
     type Error = ();
 
     fn try_into(self) -> Result<DateTime<Local>, Self::Error> {
@@ -317,7 +323,7 @@ impl TryInto<DateTime<Local>> for &SimpleDate{
 }
 
 impl StatisticOptions {
-    fn update_from_labels(&mut self){
+    fn update_from_labels(&mut self) {
         let from: Result<DateTime<Local>, ()> = (&self.label_from).try_into();
         let to: Result<DateTime<Local>, ()> = (&self.label_to).try_into();
 
@@ -327,7 +333,10 @@ impl StatisticOptions {
         if let Ok(f) = from {
             if let Ok(t) = to {
                 self.from = f;
-                self.to = t.checked_add_days(Days::new(1)).unwrap().sub(chrono::Duration::milliseconds(100));
+                self.to = t
+                    .checked_add_days(Days::new(1))
+                    .unwrap()
+                    .sub(chrono::Duration::milliseconds(100));
             }
         }
     }
@@ -380,9 +389,12 @@ impl Frontend {
 
             ui.set_max_height(30.);
             {
-                let y = ui.add_sized((50., 15.), TextEdit::singleline(&mut self.statistic_options.label_from.year));
+                let y = ui.add_sized(
+                    (50., 15.),
+                    TextEdit::singleline(&mut self.statistic_options.label_from.year),
+                );
 
-                if y.gained_focus(){
+                if y.gained_focus() {
                     self.hotkeys_blocked = true;
                 }
 
@@ -405,16 +417,22 @@ impl Frontend {
                                     m.name(),
                                 );
                             }
-                        }).response.changed() {
+                        })
+                        .response
+                        .changed()
+                    {
                         self.statistic_options.update_from_labels();
                     };
                 });
 
                 ui.add_space(2.);
 
-                let d = ui.add_sized((30., 15.), TextEdit::singleline(&mut self.statistic_options.label_from.day));
+                let d = ui.add_sized(
+                    (30., 15.),
+                    TextEdit::singleline(&mut self.statistic_options.label_from.day),
+                );
 
-                if d.gained_focus(){
+                if d.gained_focus() {
                     self.hotkeys_blocked = true;
                 }
 
@@ -429,9 +447,12 @@ impl Frontend {
             ui.add_space(5.);
 
             {
-                let y = ui.add_sized((50., 15.), TextEdit::singleline(&mut self.statistic_options.label_to.year));
+                let y = ui.add_sized(
+                    (50., 15.),
+                    TextEdit::singleline(&mut self.statistic_options.label_to.year),
+                );
 
-                if y.gained_focus(){
+                if y.gained_focus() {
                     self.hotkeys_blocked = true;
                 }
 
@@ -441,7 +462,6 @@ impl Frontend {
                 }
 
                 ui.add_space(2.);
-
 
                 ui.push_id(10, |ui| {
                     if egui::ComboBox::from_label("")
@@ -455,16 +475,22 @@ impl Frontend {
                                     m.name(),
                                 );
                             }
-                        }).response.changed() {
+                        })
+                        .response
+                        .changed()
+                    {
                         self.statistic_options.update_from_labels();
                     };
                 });
 
                 ui.add_space(2.);
 
-                let d = ui.add_sized((30., 15.), TextEdit::singleline(&mut self.statistic_options.label_to.day));
+                let d = ui.add_sized(
+                    (30., 15.),
+                    TextEdit::singleline(&mut self.statistic_options.label_to.day),
+                );
 
-                if d.gained_focus(){
+                if d.gained_focus() {
                     self.hotkeys_blocked = true;
                 }
 
@@ -495,9 +521,11 @@ impl Frontend {
                     let mut summaries: HashMap<Uuid, Summary> = HashMap::new();
                     let mut detailed: HashMap<Uuid, Summary> = HashMap::new();
 
-                    for record in self.backend.history.get_records(
-                        (self.statistic_options.from, self.statistic_options.to),
-                    ) {
+                    for record in self
+                        .backend
+                        .history
+                        .get_records((self.statistic_options.from, self.statistic_options.to))
+                    {
                         if let Some(id) = self.statistic_options.current_project_id {
                             if id == record.project_id {
                                 if let Some(v) = detailed.get_mut(&record.subject_id) {
@@ -506,7 +534,8 @@ impl Frontend {
                                     detailed.insert(
                                         record.subject_id,
                                         Summary {
-                                            title: self.backend
+                                            title: self
+                                                .backend
                                                 .projects
                                                 .get(&record.project_id)
                                                 .unwrap()
@@ -532,7 +561,8 @@ impl Frontend {
                             summaries.insert(
                                 record.project_id,
                                 Summary {
-                                    title: self.backend
+                                    title: self
+                                        .backend
                                         .projects
                                         .get(&record.project_id)
                                         .unwrap()
@@ -563,7 +593,10 @@ impl Frontend {
                                         self.statistic_options.current_project_id = Some(*v.0);
                                     }
 
-                                    ui.label(format!(" - {}", format_chrono_duration(v.1.duration)));
+                                    ui.label(format!(
+                                        " - {}",
+                                        format_chrono_duration(v.1.duration)
+                                    ));
                                 });
                             }
                         });
@@ -575,7 +608,11 @@ impl Frontend {
                             c.sort_by(|a, b| a.duration.cmp(&b.duration));
 
                             for v in c {
-                                ui.label(format!("{} - {}", v.title, format_chrono_duration(v.duration)));
+                                ui.label(format!(
+                                    "{} - {}",
+                                    v.title,
+                                    format_chrono_duration(v.duration)
+                                ));
                                 ui.add_space(4.);
                             }
                         });

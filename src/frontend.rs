@@ -7,7 +7,6 @@ use crate::util::{
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 
-
 use chrono::{DateTime, Datelike, Days, Local, LocalResult, Month, TimeZone, Timelike};
 use eframe::egui;
 use eframe::egui::scroll_area::ScrollBarVisibility;
@@ -648,12 +647,17 @@ impl Frontend {
                                                 .projects
                                                 .inner
                                                 .get(&record.project_id)
-                                                .unwrap_or_else(|| panic!("bad project id {}",
-                                                    record.subject_id))
+                                                .unwrap_or_else(|| {
+                                                    panic!("bad project id {}", record.subject_id)
+                                                })
                                                 .inner
                                                 .get(&record.sub_project_id)
-                                                .unwrap_or_else(|| panic!("bad sub-project id {}",
-                                                    record.subject_id))
+                                                .unwrap_or_else(|| {
+                                                    panic!(
+                                                        "bad sub-project id {}",
+                                                        record.subject_id
+                                                    )
+                                                })
                                                 .name
                                                 .clone(),
                                             duration: record.get_duration(),
@@ -676,16 +680,22 @@ impl Frontend {
                                                 .projects
                                                 .inner
                                                 .get(&record.project_id)
-                                                .unwrap_or_else(|| panic!("bad project id {}",
-                                                    record.subject_id))
+                                                .unwrap_or_else(|| {
+                                                    panic!("bad project id {}", record.subject_id)
+                                                })
                                                 .inner
                                                 .get(&record.sub_project_id)
-                                                .unwrap_or_else(|| panic!("bad sub-project id {}",
-                                                    record.subject_id))
+                                                .unwrap_or_else(|| {
+                                                    panic!(
+                                                        "bad sub-project id {}",
+                                                        record.subject_id
+                                                    )
+                                                })
                                                 .inner
                                                 .get(&record.subject_id)
-                                                .unwrap_or_else(|| panic!("bad subject id {}",
-                                                    record.subject_id))
+                                                .unwrap_or_else(|| {
+                                                    panic!("bad subject id {}", record.subject_id)
+                                                })
                                                 .lock()
                                                 .unwrap()
                                                 .name

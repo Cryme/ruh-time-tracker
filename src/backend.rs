@@ -54,7 +54,11 @@ pub struct PContainer<T, K: Eq + Hash> {
     pub(crate) current_inner_id: Option<K>,
 }
 
-impl<T: Serialize + DeserializeOwned + Clone, K: PreferVariant + Eq + Hash + Serialize + DeserializeOwned + Copy + Clone> PContainer<T, K> {
+impl<
+        T: Serialize + DeserializeOwned + Clone,
+        K: PreferVariant + Eq + Hash + Serialize + DeserializeOwned + Copy + Clone,
+    > PContainer<T, K>
+{
     fn new(name: &str) -> Self {
         let mut rng = thread_rng();
         Self {
@@ -118,8 +122,10 @@ impl PreferVariant for IdType {
     }
 }
 
-pub type ProjectChain = PContainer<PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>, IdType>;
-pub type TodoChain = PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>, IdType>, IdType>, IdType>;
+pub type ProjectChain =
+    PContainer<PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>, IdType>;
+pub type TodoChain =
+    PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>, IdType>, IdType>, IdType>;
 
 #[derive(Serialize, Deserialize)]
 pub struct Backend {
@@ -177,7 +183,9 @@ impl Backend {
         current_project.get_current()
     }
 
-    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>> {
+    pub fn get_current_project(
+        &self,
+    ) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>> {
         self.projects.get_current()
     }
 
@@ -217,7 +225,9 @@ impl Backend {
         None
     }
 
-    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>, IdType>> {
+    pub fn get_current_todo_sub_project(
+        &self,
+    ) -> Option<&PContainer<Arc<Mutex<TodoSubject>>, IdType>> {
         let Some(current_project) = self.todos.get_current() else {
             return None;
         };

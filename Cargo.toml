@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 env_logger = "0.10"
 eframe = "0.22.0"
-serde = "1"
+serde = {version = "1", features = ["rc"]}
 ron = "0.8.0"
 chrono = {version = "0.4.26", features = ["serde"]}
 rand = "0.8"
@@ -19,4 +19,5 @@ features = [
     "v4",                # Lets you generate random UUIDs
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    "serde"
 ]

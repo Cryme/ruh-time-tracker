@@ -5,12 +5,8 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 use uuid::Uuid;
 
-use crate::util;
-use util::{my_hash_map, my_uuid};
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct History {
-    #[serde(with = "my_hash_map")]
     records: HashMap<Uuid, HistoryRecord>,
 }
 
@@ -27,7 +23,7 @@ impl History {
         }
     }
 
-    pub fn add_record(&mut self, project_id: Uuid, subject_id: Uuid) -> Uuid {
+    pub fn add_record(&mut self, project_id: Uuid, sub_project_id: Uuid, subject_id: Uuid) -> Uuid {
         let id = Uuid::new_v4();
 
         self.records.insert(
@@ -37,6 +33,7 @@ impl History {
                 start_date: DateTime::from(SystemTime::now()),
                 end_date: DateTime::from(SystemTime::now()),
                 project_id,
+                sub_project_id,
                 subject_id,
             },
         );
@@ -119,13 +116,11 @@ impl History {
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub struct HistoryRecord {
-    #[serde(with = "my_uuid")]
     pub id: Uuid,
     pub start_date: DateTime<Local>,
     pub end_date: DateTime<Local>,
-    #[serde(with = "my_uuid")]
     pub project_id: Uuid,
-    #[serde(with = "my_uuid")]
+    pub sub_project_id: Uuid,
     pub subject_id: Uuid,
 }
 

@@ -6,6 +6,7 @@ use crate::util::{
 };
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Datelike, Days, Local, LocalResult, Month, TimeZone, Timelike};
 use eframe::egui;
@@ -34,8 +35,10 @@ enum CurrentDialog {
     #[default]
     None,
     AddProject,
+    AddSubProject,
     AddSubject,
     AddTodoProject,
+    AddTodoSubProject,
     AddTodoSubject,
 }
 
@@ -212,6 +215,28 @@ impl Frontend {
                     });
             }
 
+            CurrentDialog::AddSubProject => {
+                egui::Window::new("Add Sub Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_sub_project(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
             CurrentDialog::AddSubject => {
                 egui::Window::new("Add Project")
                     .collapsible(false)
@@ -256,6 +281,28 @@ impl Frontend {
                     });
             }
 
+            CurrentDialog::AddTodoSubProject => {
+                egui::Window::new("Add Sub Project")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.dialog_options.buffer));
+
+                            if ui.button("Cancel").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.dialog_options.buffer = "".to_string();
+                            }
+
+                            if ui.button("Add").clicked() {
+                                self.dialog_options.current_dialog = CurrentDialog::None;
+                                self.backend.add_todo_sub_project(&self.dialog_options.buffer);
+                                self.dialog_options.buffer = "".to_string();
+                            }
+                        });
+                    });
+            }
+
             CurrentDialog::AddTodoSubject => {
                 egui::Window::new("Add Subject")
                     .collapsible(false)
@@ -293,6 +340,7 @@ struct StatisticOptions {
     from: DateTime<Local>,
     to: DateTime<Local>,
     current_project_id: Option<Uuid>,
+    current_sub_project_id: Option<Uuid>,
     invalid_from: bool,
     invalid_to: bool,
 }
@@ -345,12 +393,50 @@ impl StatisticOptions {
 impl Default for StatisticOptions {
     fn default() -> Self {
         let s1 = DateTime::<Local>::from(SystemTime::now());
-        let from = Local
-            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() - 1, 0, 0, 0)
-            .unwrap();
-        let to = Local
-            .with_ymd_and_hms(s1.year(), s1.month(), s1.day() + 1, 0, 0, 0)
-            .unwrap();
+        let days = get_days_from_month(s1.year(), s1.month());
+
+        let from;
+        {
+            let mut day = s1.day();
+            let mut month = s1.month();
+            let mut year = s1.year();
+
+            if days == 1 {
+                if month == 1 {
+                    year -= 1;
+                    month = 12;
+                } else {
+                    month -= 1;
+                }
+                day = get_days_from_month(year, month);
+            }
+
+            from = Local
+                .with_ymd_and_hms(year, month, day, 0, 0, 0)
+                .unwrap();
+        }
+
+        let to;
+        {
+            let mut day = s1.day();
+            let mut month = s1.month();
+            let mut year = s1.year();
+
+            if days == s1.day() {
+                if month == 12 {
+                    year += 1;
+                    month = 1;
+                    day = 1;
+                } else {
+                    month += 1;
+                    day = 1;
+                }
+            }
+
+            to = Local
+                .with_ymd_and_hms(year, month, day, 23, 59, 59)
+                .unwrap();
+        }
 
         StatisticOptions {
             scroll_offset_x: 0.,
@@ -370,6 +456,7 @@ impl Default for StatisticOptions {
             from,
             to,
             current_project_id: None,
+            current_sub_project_id: None,
         }
     }
 }
@@ -518,32 +605,77 @@ impl Frontend {
                         duration: chrono::Duration,
                     }
 
-                    let mut summaries: HashMap<Uuid, Summary> = HashMap::new();
-                    let mut detailed: HashMap<Uuid, Summary> = HashMap::new();
+                    let mut projects_summary: HashMap<Uuid, Summary> = HashMap::new();
+                    let mut sub_projects_summary: HashMap<Uuid, Summary> = HashMap::new();
+                    let mut subjects_summary: HashMap<Uuid, Summary> = HashMap::new();
 
                     for record in self
                         .backend
                         .history
                         .get_records((self.statistic_options.from, self.statistic_options.to))
                     {
+                        if let Some(v) = projects_summary.get_mut(&record.project_id) {
+                            v.duration = v.duration.add(record.get_duration());
+                        } else {
+                            projects_summary.insert(
+                                record.project_id,
+                                Summary {
+                                    title: self
+                                        .backend
+                                        .projects.inner
+                                        .get(&record.project_id)
+                                        .unwrap()
+                                        .name
+                                        .clone(),
+                                    duration: record.get_duration(),
+                                },
+                            );
+                        }
+
                         if let Some(id) = self.statistic_options.current_project_id {
                             if id == record.project_id {
-                                if let Some(v) = detailed.get_mut(&record.subject_id) {
+                                if let Some(v) = sub_projects_summary.get_mut(&record.sub_project_id) {
                                     v.duration = v.duration.add(record.get_duration());
                                 } else {
-                                    detailed.insert(
+                                    sub_projects_summary.insert(
+                                        record.sub_project_id,
+                                        Summary {
+                                            title: self
+                                                .backend
+                                                .projects.inner
+                                                .get(&record.project_id)
+                                                .expect(&format!("bad project id {}", record.subject_id))
+                                                .inner
+                                                .get(&record.sub_project_id)
+                                                .expect(&format!("bad sub-project id {}", record.subject_id))
+                                                .name
+                                                .clone(),
+                                            duration: record.get_duration(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+
+                        if let Some(id) = self.statistic_options.current_sub_project_id {
+                            if id == record.sub_project_id {
+                                if let Some(v) = subjects_summary.get_mut(&record.subject_id) {
+                                    v.duration = v.duration.add(record.get_duration());
+                                } else {
+                                    subjects_summary.insert(
                                         record.subject_id,
                                         Summary {
                                             title: self
                                                 .backend
-                                                .projects
+                                                .projects.inner
                                                 .get(&record.project_id)
-                                                .unwrap()
-                                                .lock()
-                                                .unwrap()
-                                                .subjects
+                                                .expect(&format!("bad project id {}", record.subject_id))
+                                                .inner
+                                                .get(&record.sub_project_id)
+                                                .expect(&format!("bad sub-project id {}", record.subject_id))
+                                                .inner
                                                 .get(&record.subject_id)
-                                                .unwrap()
+                                                .expect(&format!("bad subject id {}", record.subject_id))
                                                 .lock()
                                                 .unwrap()
                                                 .name
@@ -554,31 +686,11 @@ impl Frontend {
                                 }
                             }
                         }
-
-                        if let Some(v) = summaries.get_mut(&record.project_id) {
-                            v.duration = v.duration.add(record.get_duration());
-                        } else {
-                            summaries.insert(
-                                record.project_id,
-                                Summary {
-                                    title: self
-                                        .backend
-                                        .projects
-                                        .get(&record.project_id)
-                                        .unwrap()
-                                        .lock()
-                                        .unwrap()
-                                        .name
-                                        .clone(),
-                                    duration: record.get_duration(),
-                                },
-                            );
-                        }
                     }
 
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            let mut c: Vec<(&Uuid, &Summary)> = summaries.iter().collect();
+                            let mut c: Vec<(&Uuid, &Summary)> = projects_summary.iter().collect();
                             c.sort_by(|a, b| a.1.duration.cmp(&b.1.duration));
 
                             for v in c {
@@ -591,6 +703,7 @@ impl Frontend {
                                 ui.horizontal(|ui| {
                                     if ui.button(text).clicked() {
                                         self.statistic_options.current_project_id = Some(*v.0);
+                                        self.statistic_options.current_sub_project_id = None;
                                     }
 
                                     ui.label(format!(
@@ -604,7 +717,33 @@ impl Frontend {
                         ui.add_space(215.);
 
                         ui.vertical(|ui| {
-                            let mut c: Vec<&Summary> = detailed.values().collect();
+                            let mut c: Vec<(&Uuid, &Summary)> = sub_projects_summary.iter().collect();
+                            c.sort_by(|a, b| a.1.duration.cmp(&b.1.duration));
+
+                            for v in c {
+                                let mut text = RichText::new(&v.1.title);
+
+                                if self.statistic_options.current_sub_project_id == Some(*v.0) {
+                                    text = text.strong();
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if ui.button(text).clicked() {
+                                        self.statistic_options.current_sub_project_id = Some(*v.0);
+                                    }
+
+                                    ui.label(format!(
+                                        " - {}",
+                                        format_chrono_duration(v.1.duration)
+                                    ));
+                                });
+                            }
+                        });
+
+                        ui.add_space(215.);
+
+                        ui.vertical(|ui| {
+                            let mut c: Vec<&Summary> = subjects_summary.values().collect();
                             c.sort_by(|a, b| a.duration.cmp(&b.duration));
 
                             for v in c {
@@ -831,20 +970,25 @@ impl Frontend {
                                             let project = self
                                                 .backend
                                                 .projects
+                                                .inner
                                                 .get(&record.project_id)
-                                                .unwrap()
-                                                .lock()
                                                 .unwrap();
-                                            let subject = project
-                                                .subjects
+
+                                            let sub_project = project
+                                                .inner
+                                                .get(&record.sub_project_id)
+                                                .unwrap();
+
+                                            let subject = sub_project
+                                                .inner
                                                 .get(&record.subject_id)
                                                 .unwrap()
                                                 .lock()
                                                 .unwrap();
 
                                             response.on_hover_text(format!(
-                                                "{} : {}",
-                                                project.name, subject.name
+                                                "{}/{}/{}",
+                                                project.name, sub_project.name, subject.name
                                             ));
 
                                             ui.painter().add(RectShape {
@@ -906,7 +1050,7 @@ impl Frontend {
             ui.set_min_height(55.0);
             ui.set_max_height(55.0);
 
-            if self.backend.current_subject.is_some() {
+            if self.backend.get_current_subject().is_some() {
                 match self.backend.working_mode {
                     WorkingMode::Idle => {
                         if ui.button("START").clicked() {
@@ -930,7 +1074,7 @@ impl Frontend {
             ui.set_max_height(290.0);
 
             ui.push_id(1, |ui| {
-                ScrollArea::vertical().show(ui, |ui| {
+                ScrollArea::both().show(ui, |ui| {
                     self.time_tracker_build_projects(ui);
                 });
             });
@@ -938,44 +1082,97 @@ impl Frontend {
             ui.separator();
 
             ui.push_id(2, |ui| {
-                ScrollArea::vertical().show(ui, |ui| {
+                ScrollArea::both().show(ui, |ui| {
+                    self.time_tracker_build_sub_projects(ui);
+                });
+            });
+
+            ui.separator();
+
+            ui.push_id(3, |ui| {
+                ScrollArea::both().show(ui, |ui| {
                     self.time_tracker_build_subjects(ui);
                 });
             });
         });
     }
 
-    fn time_tracker_build_projects(&mut self, ui: &mut Ui) {
-        ui.set_min_width(400.0);
-        ui.set_max_width(400.0);
+    fn time_tracker_build_sub_projects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
 
-        let current_id = if let Some(cur_project) = &self.backend.current_project {
-            cur_project.lock().unwrap().id
+        let Some(current_project) = self.backend.get_current_project() else {
+            return;
+        };
+
+        let current_id = if let Some(cur_project) = self.backend.get_current_sub_project() {
+            cur_project.id
         } else {
             Uuid::new_v4()
         };
 
-        ui.vertical(|ui| {
-            let projects = self.backend.projects.clone();
-            for (_, project) in projects {
-                let r_project = project.lock().unwrap();
 
-                if r_project.is_deleted {
+        let c = current_project.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
+
+        ui.vertical(|ui| {
+            for sub_project in c {
+                if sub_project.is_deleted {
                     continue;
                 }
 
                 ui.horizontal(|ui| {
-                    let mut text = RichText::new(&r_project.name);
+                    let mut text = RichText::new(&sub_project.name);
 
-                    if r_project.id == current_id {
+                    if sub_project.id == current_id {
                         text = text.strong();
                     }
 
                     if ui.button(text).clicked() {
-                        self.backend.set_current_project(Some(project.clone()));
+                        self.backend.set_current_sub_project(Some(sub_project.id));
                     }
 
-                    ui.label(format_duration(r_project.get_time()));
+                    ui.label(format_duration(self.backend.get_sub_project_time(&sub_project.id).unwrap()));
+                });
+
+                ui.add_space(5.0);
+            }
+
+            if ui.button("   +   ").clicked() {
+                self.dialog_options.current_dialog = CurrentDialog::AddSubProject;
+            }
+        });
+    }
+
+    fn time_tracker_build_projects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
+
+        let current_id = if let Some(cur_project) = self.backend.get_current_project() {
+            cur_project.id
+        } else {
+            Uuid::new_v4()
+        };
+
+        let c = self.backend.projects.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
+
+        ui.vertical(|ui| {
+            for project in c{
+                if project.is_deleted {
+                    continue;
+                }
+
+                ui.horizontal(|ui| {
+                    let mut text = RichText::new(&project.name);
+
+                    if project.id == current_id {
+                        text = text.strong();
+                    }
+
+                    if ui.button(text).clicked() {
+                        self.backend.set_current_project(Some(project.id));
+                    }
+
+                    ui.label(format_duration(self.backend.get_project_time(&project.id).unwrap()));
                 });
 
                 ui.add_space(5.0);
@@ -988,21 +1185,23 @@ impl Frontend {
     }
 
     fn time_tracker_build_subjects(&mut self, ui: &mut Ui) {
-        ui.set_min_width(400.0);
-        ui.set_max_width(400.0);
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
 
-        let Some(current_project) = self.backend.current_project.clone() else {
+        let Some(current_sub_project) = self.backend.get_current_sub_project() else {
             return;
         };
 
-        let current_id = if let Some(cur_subject) = &self.backend.current_subject {
+        let current_id = if let Some(cur_subject) = self.backend.get_current_subject() {
             cur_subject.lock().unwrap().id
         } else {
             Uuid::new_v4()
         };
 
+        let c = current_sub_project.get_inner_sorted(|a, b| a.lock().unwrap().created_at.cmp(&b.lock().unwrap().created_at));
+
         ui.vertical(|ui| {
-            for subject in current_project.lock().unwrap().subjects.values() {
+            for subject in c {
                 let r_subject = subject.lock().unwrap();
 
                 if r_subject.is_deleted {
@@ -1020,7 +1219,7 @@ impl Frontend {
                         if current_id != r_subject.id {
                             self.time_tracker_stop_subject(true);
                         }
-                        self.backend.set_current_subject(Some(subject.clone()));
+                        self.backend.set_current_subject(Some(r_subject.id));
                     }
 
                     ui.label(format_duration(r_subject.duration));
@@ -1057,9 +1256,10 @@ struct MinimalTrackerOptions {
 
 impl Frontend {
     fn minimal_time_tracker_build(&mut self, ui: &mut Ui) {
+        let current_subject = self.backend.get_current_subject();
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
-                if self.backend.current_subject.is_some() {
+                if current_subject.is_some() {
                     match self.backend.working_mode {
                         WorkingMode::Idle => {
                             if ui.button("START").clicked() {
@@ -1077,7 +1277,7 @@ impl Frontend {
                 self.build_menu(ui);
             });
 
-            if self.backend.current_subject.is_some() {
+            if current_subject.is_some() {
                 ui.label(format_duration(self.backend.current_session_duration));
             }
         });
@@ -1102,7 +1302,7 @@ impl Frontend {
             ui.set_max_height(353.0);
 
             ui.push_id(1, |ui| {
-                ScrollArea::vertical().show(ui, |ui| {
+                ScrollArea::both().show(ui, |ui| {
                     self.todo_build_projects(ui);
                 });
             });
@@ -1110,7 +1310,15 @@ impl Frontend {
             ui.separator();
 
             ui.push_id(2, |ui| {
-                ScrollArea::vertical().show(ui, |ui| {
+                ScrollArea::both().show(ui, |ui| {
+                    self.todo_build_sub_projects(ui);
+                });
+            });
+
+            ui.separator();
+
+            ui.push_id(3, |ui| {
+                ScrollArea::both().show(ui, |ui| {
                     self.todo_build_subjects(ui);
                 });
             });
@@ -1118,33 +1326,32 @@ impl Frontend {
     }
 
     fn todo_build_projects(&mut self, ui: &mut Ui) {
-        ui.set_min_width(400.0);
-        ui.set_max_width(400.0);
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
 
-        let current_id = if let Some(cur_project) = &self.backend.current_todo_project {
-            cur_project.lock().unwrap().id
+        let current_id = if let Some(cur_project) = self.backend.get_current_todo_project() {
+            cur_project.id
         } else {
             Uuid::new_v4()
         };
 
-        ui.vertical(|ui| {
-            let projects = self.backend.todos.clone();
-            for (_, project) in projects {
-                let r_project = project.lock().unwrap();
+        let c = self.backend.todos.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
 
-                if r_project.is_deleted {
+        ui.vertical(|ui| {
+            for project in c {
+                if project.is_deleted {
                     continue;
                 }
 
                 ui.horizontal(|ui| {
-                    let mut text = RichText::new(&r_project.name);
+                    let mut text = RichText::new(&project.name);
 
-                    if r_project.id == current_id {
+                    if project.id == current_id {
                         text = text.strong();
                     }
 
                     if ui.button(text).clicked() {
-                        self.backend.set_current_todo_project(Some(project.clone()));
+                        self.backend.set_current_todo_project(Some(project.id));
                     }
                 });
 
@@ -1157,16 +1364,63 @@ impl Frontend {
         });
     }
 
-    fn todo_build_subjects(&mut self, ui: &mut Ui) {
-        ui.set_min_width(400.0);
-        ui.set_max_width(400.0);
 
-        let Some(current_project) = self.backend.current_todo_project.clone() else {
+    fn todo_build_sub_projects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
+
+        let Some(current_project) = self.backend.get_current_todo_project() else {
             return;
         };
 
+        let current_id = if let Some(cur_project) = self.backend.get_current_todo_sub_project() {
+            cur_project.id
+        } else {
+            Uuid::new_v4()
+        };
+
+        let c = current_project.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
+
         ui.vertical(|ui| {
-            for subject in current_project.lock().unwrap().subjects.values() {
+            for sub_project in c {
+                if sub_project.is_deleted {
+                    continue;
+                }
+
+                ui.horizontal(|ui| {
+                    let mut text = RichText::new(&sub_project.name);
+
+                    if sub_project.id == current_id {
+                        text = text.strong();
+                    }
+
+                    if ui.button(text).clicked() {
+                        self.backend.set_current_todo_sub_project(Some(sub_project.id));
+                    }
+                });
+
+                ui.add_space(5.0);
+            }
+
+            if ui.button("   +   ").clicked() {
+                self.dialog_options.current_dialog = CurrentDialog::AddTodoSubProject;
+            }
+        });
+    }
+
+    fn todo_build_subjects(&mut self, ui: &mut Ui) {
+        ui.set_min_width(300.0);
+        ui.set_max_width(300.0);
+
+        let Some(current_todo_sub_project) = self.backend.get_current_todo_sub_project() else {
+            return;
+        };
+
+
+        let c = current_todo_sub_project.get_inner_sorted(|a, b| a.lock().unwrap().created_at.cmp(&b.lock().unwrap().created_at));
+
+        ui.vertical(|ui| {
+            for subject in c {
                 let text;
                 let mut is_done;
                 {
@@ -1182,7 +1436,7 @@ impl Frontend {
                 ui.horizontal(|ui| {
                     if ui.checkbox(&mut is_done, text).clicked() {
                         subject.lock().unwrap().toggle();
-                        self.backend.mark_dirty();
+                        self.backend.dirty();
                     };
                 });
 

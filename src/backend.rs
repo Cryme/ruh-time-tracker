@@ -1,5 +1,5 @@
+use std::cmp::Ordering;
 use crate::history::History;
-use crate::util;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use util::{my_hash_map_mutex, my_uuid};
+use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -38,28 +38,92 @@ impl WorkingProgress {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PContainer<T> {
+    pub(crate) id: Uuid,
+    pub(crate) name: String,
+    pub(crate) created_at: SystemTime,
+    pub(crate) is_deleted: bool,
+    pub(crate) color: (u8, u8, u8),
+    pub(crate) inner: HashMap<Uuid, T>,
+    pub(crate) current_inner_id: Option<Uuid>,
+}
+
+impl<T: Serialize+DeserializeOwned+Clone> PContainer<T> {
+    fn new(name: &str) -> Self {
+        let mut rng = thread_rng();
+
+        Self{
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            created_at: SystemTime::now(),
+            is_deleted: false,
+            color: (rng.gen(), rng.gen(), rng.gen()),
+            inner: HashMap::new(),
+            current_inner_id: None,
+        }
+    }
+
+    pub(crate) fn get_inner_sorted<F>(&self, sort_f: F) -> Vec<T>
+    where
+        F: FnMut(&T, &T) -> Ordering
+    {
+        let mut c: Vec<T> = self.inner.values().cloned().collect();
+
+        c.sort_by(sort_f);
+
+        c
+    }
+
+    fn get_current_mut(&mut self) -> Option<&mut T> {
+        if let Some(id) = &self.current_inner_id {
+            let Some(pr) = self.inner.get_mut(id) else {
+                self.current_inner_id = None;
+
+                return None;
+            };
+
+            return Some(pr)
+        }
+
+        None
+    }
+    fn get_current(&self) -> Option<&T> {
+        if let Some(id) = &self.current_inner_id {
+             return self.inner.get(id)
+        }
+
+        None
+    }
+
+    fn set_current(&mut self, key: Option<Uuid>) {
+        if let Some(key) = &key{
+            if !self.inner.contains_key(key){
+                return;
+            }
+        }
+
+        self.current_inner_id = key;
+    }
+}
+
+pub type ProjectChain = PContainer<PContainer<PContainer<Arc<Mutex<Subject>>>>>;
+pub type TodoChain = PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>>>>;
+
 #[derive(Serialize, Deserialize)]
 pub struct Backend {
-    #[serde(with = "my_hash_map_mutex")]
-    pub(crate) projects: HashMap<Uuid, Arc<Mutex<Project>>>,
-    #[serde(with = "my_hash_map_mutex")]
-    pub(crate) todos: HashMap<Uuid, Arc<Mutex<TodoProject>>>,
-    #[serde(skip)]
-    pub(crate) current_project: Option<Arc<Mutex<Project>>>,
-    #[serde(skip)]
-    pub(crate) current_subject: Option<Arc<Mutex<Subject>>>,
-    #[serde(skip)]
-    pub(crate) current_todo_project: Option<Arc<Mutex<TodoProject>>>,
+    pub(crate) projects: ProjectChain,
+    pub(crate) todos: TodoChain,
     #[serde(skip)]
     pub(crate) working_mode: WorkingMode,
     #[serde(skip)]
     pub(crate) dirty: bool,
     pub(crate) current_session_duration: Duration,
-    #[serde(with = "my_uuid")]
     pub(crate) last_session_subject_id: Uuid,
     last_save: SystemTime,
     pub(crate) history: History,
 }
+
 
 impl Backend {
     pub fn load() -> Self {
@@ -79,20 +143,93 @@ impl Backend {
         Self::default()
     }
 
-    pub fn mark_dirty(&mut self) {
+    pub fn dirty(&mut self) {
         self.dirty = true;
     }
 
-    pub fn set_current_subject(&mut self, subject: Option<Arc<Mutex<Subject>>>) {
-        self.current_subject = subject;
+    pub fn get_current_subject(&self) -> Option<Arc<Mutex<Subject>>>{
+        if let Some(project) = self.projects.get_current() {
+            if let Some(sub_project) = project.get_current() {
+                if let Some(subject) = sub_project.get_current() {
+                    return Some(subject.clone());
+                }
+            }
+        }
+
+        None
     }
 
-    pub fn set_current_project(&mut self, project: Option<Arc<Mutex<Project>>>) {
-        self.current_project = project;
+    pub fn get_current_sub_project(&self) -> Option<&PContainer<Arc<Mutex<Subject>>>>{
+        let Some(current_project) = self.projects.get_current() else {
+            return None;
+        };
+
+        current_project.get_current()
     }
 
-    pub fn set_current_todo_project(&mut self, project: Option<Arc<Mutex<TodoProject>>>) {
-        self.current_todo_project = project;
+    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>>>>{
+        self.projects.get_current()
+    }
+
+    pub fn set_current_subject(&mut self, subject_key: Option<Uuid>) {
+        let Some(current_project) = self.projects.get_current_mut() else {
+            return;
+        };
+
+        let Some(current_sub_project) = current_project.get_current_mut() else {
+            return;
+        };
+
+        current_sub_project.set_current(subject_key);
+    }
+
+    pub fn set_current_sub_project(&mut self, sub_project_key: Option<Uuid>) {
+        let Some(current_project) = self.projects.get_current_mut() else {
+            return;
+        };
+
+        current_project.set_current(sub_project_key);
+    }
+
+    pub fn set_current_project(&mut self, project_key: Option<Uuid>) {
+        self.projects.set_current(project_key)
+    }
+
+
+    pub fn get_current_todo_subject(&self) -> Option<Arc<Mutex<TodoSubject>>>{
+        if let Some(project) = self.todos.get_current() {
+            if let Some(sub_project) = project.get_current() {
+                if let Some(subject) = sub_project.get_current() {
+                    return Some(subject.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>>>{
+        let Some(current_project) = self.todos.get_current() else {
+            return None;
+        };
+
+        current_project.get_current()
+    }
+
+    pub fn get_current_todo_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<TodoSubject>>>>>{
+        self.todos.get_current()
+    }
+
+    pub fn set_current_todo_sub_project(&mut self, sub_project_key: Option<Uuid>) {
+        let Some(current_project) = self.todos.get_current_mut() else {
+            return;
+        };
+
+        current_project.set_current(sub_project_key);
+    }
+
+    pub fn set_current_todo_project(&mut self, project_key: Option<Uuid>) {
+        self.todos.set_current(project_key)
     }
 
     pub(crate) fn dump(&mut self) {
@@ -131,69 +268,157 @@ impl Backend {
         }
     }
 
+    pub fn get_project_time(&self, key: &Uuid) -> Option<Duration> {
+        if let Some(project) = self.projects.inner.get(key) {
+            return Some(project.inner.values().fold(
+                Duration::default(), |s, inner| {
+                    s + inner.inner.values().fold(
+                            Duration::default(), |v, iv| {
+                            v + iv.lock().unwrap().duration
+                        }
+                    )
+                }
+            ));
+        }
+
+        None
+    }
+
+    pub fn get_sub_project_time(&self, key: &Uuid) -> Option<Duration> {
+        if let Some(project) = self.projects.get_current() {
+            if let Some(sub_project) = project.inner.get(key) {
+                return Some(sub_project.inner.values().fold(
+                    Duration::default(), |v, iv| {
+                        v + iv.lock().unwrap().duration
+                    }
+                ));
+            }
+        }
+
+        None
+    }
+
     pub fn get_current_work_name(&self) -> String {
-        if let Some(subject) = &self.current_subject {
-            if let Some(project) = &self.current_project {
-                return format!(
-                    " {} - {}",
-                    project.lock().unwrap().name,
-                    subject.lock().unwrap().name
-                );
+        if let Some(project) = self.projects.get_current() {
+            if let Some(sub_project) = project.get_current() {
+                if let Some(subject) = sub_project.get_current() {
+                    return format!(
+                        " {}/{}/{}",
+                        project.name,
+                        sub_project.name,
+                        subject.lock().unwrap().name,
+                    );
+                }
             }
         }
 
         "None".to_string()
     }
-
     pub fn add_todo_project(&mut self, name: &str) {
-        let project = TodoProject::create(name);
-        self.todos.insert(project.id, Arc::new(Mutex::new(project)));
+        let project = PContainer::new(name);
 
-        self.mark_dirty();
+        self.todos.inner
+            .insert(project.id, project);
+
+        self.dirty();
+    }
+
+    pub fn add_todo_sub_project(&mut self, name: &str) {
+        let Some(project) = self.todos.get_current_mut() else {
+            return;
+        };
+
+        let sub_project = PContainer::new(name);
+
+        project.inner
+            .insert(sub_project.id, sub_project);
+
+        self.dirty();
     }
 
     pub fn add_todo_subject(&mut self, name: &str) {
-        if let Some(project) = &self.current_todo_project {
-            project.lock().unwrap().add_subject(name);
+        let Some(project) = self.todos.get_current_mut() else {
+            return;
+        };
 
-            self.mark_dirty();
-        }
+        let Some(sub_project) = project.get_current_mut() else {
+            return;
+        };
+
+        let subject = TodoSubject::create(name);
+
+        sub_project.inner.insert(subject.id, Arc::new(Mutex::new(subject)));
+
+        self.dirty();
     }
 
     pub fn add_project(&mut self, name: &str) {
-        let project = Project::create(name);
-        self.projects
-            .insert(project.id, Arc::new(Mutex::new(project)));
+        let project = PContainer::new(name);
 
-        self.mark_dirty();
+        self.projects.inner
+            .insert(project.id, project);
+
+        self.dirty();
+    }
+
+    pub fn add_sub_project(&mut self, name: &str) {
+        let Some(project) = self.projects.get_current_mut() else {
+            return;
+        };
+
+        let sub_project = PContainer::new(name);
+
+        project.inner
+            .insert(sub_project.id, sub_project);
+
+        self.dirty();
     }
 
     pub fn add_subject(&mut self, name: &str) {
-        if let Some(project) = &self.current_project {
-            project.lock().unwrap().add_subject(name);
+        let Some(project) = self.projects.get_current_mut() else {
+            return;
+        };
 
-            self.mark_dirty();
-        }
+        let Some(sub_project) = project.get_current_mut() else {
+            return;
+        };
+
+        let subject = Subject::create(name);
+
+        sub_project.inner.insert(subject.id, Arc::new(Mutex::new(subject)));
+
+        self.dirty();
     }
 
     pub fn start_subject(&mut self) {
-        if let Some(subject) = &self.current_subject {
-            if let Some(project) = &self.current_project {
-                let subject_id = subject.lock().unwrap().id;
+        let Some(project) = self.projects.get_current_mut() else {
+            return;
+        };
 
-                if self.last_session_subject_id != subject_id {
-                    self.current_session_duration = Duration::ZERO;
-                }
+        let project_id = project.id;
 
-                self.last_session_subject_id = subject_id;
+        let Some(sub_project) = project.get_current_mut() else {
+            return;
+        };
 
-                let project = project.lock().unwrap();
-                self.working_mode = WorkingMode::InProgress(WorkingProgress::start(
-                    subject.clone(),
-                    self.history.add_record(project.id, subject_id),
-                ));
-            }
+        let sub_project_id = sub_project.id;
+
+        let Some(subject) = sub_project.get_current_mut() else {
+            return;
+        };
+
+        let subject_id = subject.lock().unwrap().id;
+
+        if self.last_session_subject_id != subject_id {
+            self.current_session_duration = Duration::ZERO;
         }
+
+        self.last_session_subject_id = subject_id;
+
+        self.working_mode = WorkingMode::InProgress(WorkingProgress::start(
+            subject.clone(),
+            self.history.add_record(project_id,  sub_project_id, subject_id),
+        ));
     }
 
     pub fn stop_subject(&mut self, force: bool) {
@@ -201,7 +426,7 @@ impl Backend {
 
         if force {
             self.current_session_duration = Duration::ZERO;
-        } else if let Some(subject) = &self.current_subject {
+        } else if let Some(subject) = self.get_current_subject() {
             if self.last_session_subject_id != subject.lock().unwrap().id {
                 self.current_session_duration = Duration::ZERO;
             }
@@ -212,64 +437,23 @@ impl Backend {
 impl Default for Backend {
     fn default() -> Self {
         Self {
-            projects: HashMap::new(),
-            current_project: None,
-            current_subject: None,
-            current_todo_project: None,
+            projects: PContainer::new("root"),
             working_mode: Default::default(),
             current_session_duration: Duration::default(),
             last_session_subject_id: Uuid::new_v4(),
             last_save: SystemTime::now(),
             history: History::new(),
-            todos: HashMap::new(),
+            todos: PContainer::new("root"),
             dirty: false,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct Project {
-    #[serde(with = "my_uuid")]
-    pub(crate) id: Uuid,
-    pub(crate) name: String,
-    #[serde(with = "my_hash_map_mutex")]
-    pub(crate) subjects: HashMap<Uuid, Arc<Mutex<Subject>>>,
-    pub(crate) is_deleted: bool,
-    pub(crate) color: (u8, u8, u8),
-}
-
-impl Project {
-    pub fn create(name: &str) -> Self {
-        let mut rng = thread_rng();
-
-        Project {
-            id: Uuid::new_v4(),
-            name: name.to_string(),
-            subjects: HashMap::new(),
-            is_deleted: false,
-            color: (rng.gen(), rng.gen(), rng.gen()),
-        }
-    }
-
-    pub fn add_subject(&mut self, name: &str) {
-        let subject = Subject::create(name);
-
-        self.subjects
-            .insert(subject.id, Arc::new(Mutex::new(subject)));
-    }
-
-    pub fn get_time(&self) -> Duration {
-        self.subjects.iter().fold(Duration::default(), |s, (_, e)| {
-            s + e.lock().unwrap().duration
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
 pub struct Subject {
-    #[serde(with = "my_uuid")]
     pub(crate) id: Uuid,
     pub(crate) name: String,
+    pub(crate) created_at: SystemTime,
     pub(crate) duration: Duration,
     pub(crate) is_deleted: bool,
 }
@@ -279,6 +463,7 @@ impl Subject {
         Subject {
             id: Uuid::new_v4(),
             name: name.to_string(),
+            created_at: SystemTime::now(),
             duration: Duration::default(),
             is_deleted: false,
         }
@@ -286,38 +471,10 @@ impl Subject {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct TodoProject {
-    #[serde(with = "my_uuid")]
-    pub(crate) id: Uuid,
-    pub(crate) name: String,
-    #[serde(with = "my_hash_map_mutex")]
-    pub(crate) subjects: HashMap<Uuid, Arc<Mutex<TodoSubject>>>,
-    pub(crate) is_deleted: bool,
-}
-
-impl TodoProject {
-    pub fn create(name: &str) -> Self {
-        TodoProject {
-            id: Uuid::new_v4(),
-            name: name.to_string(),
-            subjects: HashMap::new(),
-            is_deleted: false,
-        }
-    }
-
-    pub fn add_subject(&mut self, name: &str) {
-        let subject = TodoSubject::create(name);
-
-        self.subjects
-            .insert(subject.id, Arc::new(Mutex::new(subject)));
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
 pub struct TodoSubject {
-    #[serde(with = "my_uuid")]
     pub(crate) id: Uuid,
     pub(crate) name: String,
+    pub(crate) created_at: SystemTime,
     pub(crate) is_deleted: bool,
     pub(crate) is_done: bool,
 }
@@ -327,6 +484,7 @@ impl TodoSubject {
         TodoSubject {
             id: Uuid::new_v4(),
             name: name.to_string(),
+            created_at: SystemTime::now(),
             is_deleted: false,
             is_done: false,
         }

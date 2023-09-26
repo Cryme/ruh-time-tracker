@@ -53,7 +53,7 @@ fn custom_window_frame(
         }
 
         DisplayMode::Time | DisplayMode::Todo => {
-            frame.set_window_size(Vec2::new(800., 400.));
+            frame.set_window_size(Vec2::new(954., 400.));
         }
 
         DisplayMode::Minimal => {

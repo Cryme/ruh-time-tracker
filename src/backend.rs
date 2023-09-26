@@ -43,12 +43,6 @@ pub trait PreferVariant {
     fn get_prefer() -> Self;
 }
 
-impl PreferVariant for Uuid {
-    fn get_prefer() -> Self {
-        Uuid::new_v4()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PContainer<T, K: Eq + Hash> {
     pub(crate) id: K,
@@ -118,6 +112,12 @@ impl<T: Serialize + DeserializeOwned + Clone, K: PreferVariant + Eq + Hash + Ser
 }
 
 pub type IdType = Uuid;
+impl PreferVariant for IdType {
+    fn get_prefer() -> Self {
+        Uuid::new_v4()
+    }
+}
+
 pub type ProjectChain = PContainer<PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>, IdType>;
 pub type TodoChain = PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>, IdType>, IdType>, IdType>;
 

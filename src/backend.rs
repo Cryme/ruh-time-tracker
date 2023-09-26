@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -38,23 +39,32 @@ impl WorkingProgress {
     }
 }
 
+pub trait PreferVariant {
+    fn get_prefer() -> Self;
+}
+
+impl PreferVariant for Uuid {
+    fn get_prefer() -> Self {
+        Uuid::new_v4()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
-pub struct PContainer<T> {
-    pub(crate) id: Uuid,
+pub struct PContainer<T, K: Eq + Hash> {
+    pub(crate) id: K,
     pub(crate) name: String,
     pub(crate) created_at: SystemTime,
     pub(crate) is_deleted: bool,
     pub(crate) color: (u8, u8, u8),
-    pub(crate) inner: HashMap<Uuid, T>,
-    pub(crate) current_inner_id: Option<Uuid>,
+    pub(crate) inner: HashMap<K, T>,
+    pub(crate) current_inner_id: Option<K>,
 }
 
-impl<T: Serialize + DeserializeOwned + Clone> PContainer<T> {
+impl<T: Serialize + DeserializeOwned + Clone, K: PreferVariant + Eq + Hash + Serialize + DeserializeOwned + Copy + Clone> PContainer<T, K> {
     fn new(name: &str) -> Self {
         let mut rng = thread_rng();
-
         Self {
-            id: Uuid::new_v4(),
+            id: K::get_prefer(),
             name: name.to_string(),
             created_at: SystemTime::now(),
             is_deleted: false,
@@ -96,7 +106,7 @@ impl<T: Serialize + DeserializeOwned + Clone> PContainer<T> {
         None
     }
 
-    fn set_current(&mut self, key: Option<Uuid>) {
+    fn set_current(&mut self, key: Option<K>) {
         if let Some(key) = &key {
             if !self.inner.contains_key(key) {
                 return;
@@ -107,8 +117,9 @@ impl<T: Serialize + DeserializeOwned + Clone> PContainer<T> {
     }
 }
 
-pub type ProjectChain = PContainer<PContainer<PContainer<Arc<Mutex<Subject>>>>>;
-pub type TodoChain = PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>>>>;
+pub type IdType = Uuid;
+pub type ProjectChain = PContainer<PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>, IdType>;
+pub type TodoChain = PContainer<PContainer<PContainer<Arc<Mutex<TodoSubject>>, IdType>, IdType>, IdType>;
 
 #[derive(Serialize, Deserialize)]
 pub struct Backend {
@@ -158,7 +169,7 @@ impl Backend {
         None
     }
 
-    pub fn get_current_sub_project(&self) -> Option<&PContainer<Arc<Mutex<Subject>>>> {
+    pub fn get_current_sub_project(&self) -> Option<&PContainer<Arc<Mutex<Subject>>, IdType>> {
         let Some(current_project) = self.projects.get_current() else {
             return None;
         };
@@ -166,7 +177,7 @@ impl Backend {
         current_project.get_current()
     }
 
-    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>>>> {
+    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>, IdType>, IdType>> {
         self.projects.get_current()
     }
 
@@ -206,7 +217,7 @@ impl Backend {
         None
     }
 
-    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>>> {
+    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>, IdType>> {
         let Some(current_project) = self.todos.get_current() else {
             return None;
         };
@@ -216,7 +227,7 @@ impl Backend {
 
     pub fn get_current_todo_project(
         &self,
-    ) -> Option<&PContainer<PContainer<Arc<Mutex<TodoSubject>>>>> {
+    ) -> Option<&PContainer<PContainer<Arc<Mutex<TodoSubject>>, IdType>, IdType>> {
         self.todos.get_current()
     }
 

@@ -53,7 +53,6 @@ pub struct Frontend {
     dialog_options: DialogOptions,
     time_tracker_options: TimeTrackerOptions,
     minimal_time_tracker_options: MinimalTrackerOptions,
-    todo_options: TodoOptions,
     statistic_options: StatisticOptions,
 }
 
@@ -1308,9 +1307,6 @@ impl Frontend {
 /**
     TO DO block
 **/
-
-#[derive(Default)]
-struct TodoOptions {}
 
 impl Frontend {
     fn todo_build(&mut self, ui: &mut Ui) {

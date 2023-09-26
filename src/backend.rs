@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use crate::history::History;
+use std::cmp::Ordering;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use rand::{thread_rng, Rng};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -49,11 +49,11 @@ pub struct PContainer<T> {
     pub(crate) current_inner_id: Option<Uuid>,
 }
 
-impl<T: Serialize+DeserializeOwned+Clone> PContainer<T> {
+impl<T: Serialize + DeserializeOwned + Clone> PContainer<T> {
     fn new(name: &str) -> Self {
         let mut rng = thread_rng();
 
-        Self{
+        Self {
             id: Uuid::new_v4(),
             name: name.to_string(),
             created_at: SystemTime::now(),
@@ -66,7 +66,7 @@ impl<T: Serialize+DeserializeOwned+Clone> PContainer<T> {
 
     pub(crate) fn get_inner_sorted<F>(&self, sort_f: F) -> Vec<T>
     where
-        F: FnMut(&T, &T) -> Ordering
+        F: FnMut(&T, &T) -> Ordering,
     {
         let mut c: Vec<T> = self.inner.values().cloned().collect();
 
@@ -83,22 +83,22 @@ impl<T: Serialize+DeserializeOwned+Clone> PContainer<T> {
                 return None;
             };
 
-            return Some(pr)
+            return Some(pr);
         }
 
         None
     }
     fn get_current(&self) -> Option<&T> {
         if let Some(id) = &self.current_inner_id {
-             return self.inner.get(id)
+            return self.inner.get(id);
         }
 
         None
     }
 
     fn set_current(&mut self, key: Option<Uuid>) {
-        if let Some(key) = &key{
-            if !self.inner.contains_key(key){
+        if let Some(key) = &key {
+            if !self.inner.contains_key(key) {
                 return;
             }
         }
@@ -124,7 +124,6 @@ pub struct Backend {
     pub(crate) history: History,
 }
 
-
 impl Backend {
     pub fn load() -> Self {
         let config = Path::new("./data.ron");
@@ -147,7 +146,7 @@ impl Backend {
         self.dirty = true;
     }
 
-    pub fn get_current_subject(&self) -> Option<Arc<Mutex<Subject>>>{
+    pub fn get_current_subject(&self) -> Option<Arc<Mutex<Subject>>> {
         if let Some(project) = self.projects.get_current() {
             if let Some(sub_project) = project.get_current() {
                 if let Some(subject) = sub_project.get_current() {
@@ -159,7 +158,7 @@ impl Backend {
         None
     }
 
-    pub fn get_current_sub_project(&self) -> Option<&PContainer<Arc<Mutex<Subject>>>>{
+    pub fn get_current_sub_project(&self) -> Option<&PContainer<Arc<Mutex<Subject>>>> {
         let Some(current_project) = self.projects.get_current() else {
             return None;
         };
@@ -167,7 +166,7 @@ impl Backend {
         current_project.get_current()
     }
 
-    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>>>>{
+    pub fn get_current_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<Subject>>>>> {
         self.projects.get_current()
     }
 
@@ -195,8 +194,7 @@ impl Backend {
         self.projects.set_current(project_key)
     }
 
-
-    pub fn get_current_todo_subject(&self) -> Option<Arc<Mutex<TodoSubject>>>{
+    pub fn get_current_todo_subject(&self) -> Option<Arc<Mutex<TodoSubject>>> {
         if let Some(project) = self.todos.get_current() {
             if let Some(sub_project) = project.get_current() {
                 if let Some(subject) = sub_project.get_current() {
@@ -208,7 +206,7 @@ impl Backend {
         None
     }
 
-    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>>>{
+    pub fn get_current_todo_sub_project(&self) -> Option<&PContainer<Arc<Mutex<TodoSubject>>>> {
         let Some(current_project) = self.todos.get_current() else {
             return None;
         };
@@ -216,7 +214,9 @@ impl Backend {
         current_project.get_current()
     }
 
-    pub fn get_current_todo_project(&self) -> Option<&PContainer<PContainer<Arc<Mutex<TodoSubject>>>>>{
+    pub fn get_current_todo_project(
+        &self,
+    ) -> Option<&PContainer<PContainer<Arc<Mutex<TodoSubject>>>>> {
         self.todos.get_current()
     }
 
@@ -270,15 +270,17 @@ impl Backend {
 
     pub fn get_project_time(&self, key: &Uuid) -> Option<Duration> {
         if let Some(project) = self.projects.inner.get(key) {
-            return Some(project.inner.values().fold(
-                Duration::default(), |s, inner| {
-                    s + inner.inner.values().fold(
-                            Duration::default(), |v, iv| {
-                            v + iv.lock().unwrap().duration
-                        }
-                    )
-                }
-            ));
+            return Some(
+                project
+                    .inner
+                    .values()
+                    .fold(Duration::default(), |s, inner| {
+                        s + inner
+                            .inner
+                            .values()
+                            .fold(Duration::default(), |v, iv| v + iv.lock().unwrap().duration)
+                    }),
+            );
         }
 
         None
@@ -287,11 +289,12 @@ impl Backend {
     pub fn get_sub_project_time(&self, key: &Uuid) -> Option<Duration> {
         if let Some(project) = self.projects.get_current() {
             if let Some(sub_project) = project.inner.get(key) {
-                return Some(sub_project.inner.values().fold(
-                    Duration::default(), |v, iv| {
-                        v + iv.lock().unwrap().duration
-                    }
-                ));
+                return Some(
+                    sub_project
+                        .inner
+                        .values()
+                        .fold(Duration::default(), |v, iv| v + iv.lock().unwrap().duration),
+                );
             }
         }
 
@@ -317,8 +320,7 @@ impl Backend {
     pub fn add_todo_project(&mut self, name: &str) {
         let project = PContainer::new(name);
 
-        self.todos.inner
-            .insert(project.id, project);
+        self.todos.inner.insert(project.id, project);
 
         self.dirty();
     }
@@ -330,8 +332,7 @@ impl Backend {
 
         let sub_project = PContainer::new(name);
 
-        project.inner
-            .insert(sub_project.id, sub_project);
+        project.inner.insert(sub_project.id, sub_project);
 
         self.dirty();
     }
@@ -347,7 +348,9 @@ impl Backend {
 
         let subject = TodoSubject::create(name);
 
-        sub_project.inner.insert(subject.id, Arc::new(Mutex::new(subject)));
+        sub_project
+            .inner
+            .insert(subject.id, Arc::new(Mutex::new(subject)));
 
         self.dirty();
     }
@@ -355,8 +358,7 @@ impl Backend {
     pub fn add_project(&mut self, name: &str) {
         let project = PContainer::new(name);
 
-        self.projects.inner
-            .insert(project.id, project);
+        self.projects.inner.insert(project.id, project);
 
         self.dirty();
     }
@@ -368,8 +370,7 @@ impl Backend {
 
         let sub_project = PContainer::new(name);
 
-        project.inner
-            .insert(sub_project.id, sub_project);
+        project.inner.insert(sub_project.id, sub_project);
 
         self.dirty();
     }
@@ -385,7 +386,9 @@ impl Backend {
 
         let subject = Subject::create(name);
 
-        sub_project.inner.insert(subject.id, Arc::new(Mutex::new(subject)));
+        sub_project
+            .inner
+            .insert(subject.id, Arc::new(Mutex::new(subject)));
 
         self.dirty();
     }
@@ -417,7 +420,8 @@ impl Backend {
 
         self.working_mode = WorkingMode::InProgress(WorkingProgress::start(
             subject.clone(),
-            self.history.add_record(project_id,  sub_project_id, subject_id),
+            self.history
+                .add_record(project_id, sub_project_id, subject_id),
         ));
     }
 

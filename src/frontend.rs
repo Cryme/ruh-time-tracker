@@ -296,7 +296,8 @@ impl Frontend {
 
                             if ui.button("Add").clicked() {
                                 self.dialog_options.current_dialog = CurrentDialog::None;
-                                self.backend.add_todo_sub_project(&self.dialog_options.buffer);
+                                self.backend
+                                    .add_todo_sub_project(&self.dialog_options.buffer);
                                 self.dialog_options.buffer = "".to_string();
                             }
                         });
@@ -362,8 +363,10 @@ impl TryInto<DateTime<Local>> for &SimpleDate {
             return Err(());
         };
 
-        let LocalResult::Single(res) = Local.with_ymd_and_hms(year, self.month.number_from_month(), day, 0, 0, 0) else {
-            return Err(())
+        let LocalResult::Single(res) =
+            Local.with_ymd_and_hms(year, self.month.number_from_month(), day, 0, 0, 0)
+        else {
+            return Err(());
         };
 
         Ok(res)
@@ -411,9 +414,7 @@ impl Default for StatisticOptions {
                 day = get_days_from_month(year, month);
             }
 
-            from = Local
-                .with_ymd_and_hms(year, month, day, 0, 0, 0)
-                .unwrap();
+            from = Local.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap();
         }
 
         let to;
@@ -622,7 +623,8 @@ impl Frontend {
                                 Summary {
                                     title: self
                                         .backend
-                                        .projects.inner
+                                        .projects
+                                        .inner
                                         .get(&record.project_id)
                                         .unwrap()
                                         .name
@@ -634,7 +636,9 @@ impl Frontend {
 
                         if let Some(id) = self.statistic_options.current_project_id {
                             if id == record.project_id {
-                                if let Some(v) = sub_projects_summary.get_mut(&record.sub_project_id) {
+                                if let Some(v) =
+                                    sub_projects_summary.get_mut(&record.sub_project_id)
+                                {
                                     v.duration = v.duration.add(record.get_duration());
                                 } else {
                                     sub_projects_summary.insert(
@@ -642,12 +646,19 @@ impl Frontend {
                                         Summary {
                                             title: self
                                                 .backend
-                                                .projects.inner
+                                                .projects
+                                                .inner
                                                 .get(&record.project_id)
-                                                .expect(&format!("bad project id {}", record.subject_id))
+                                                .expect(&format!(
+                                                    "bad project id {}",
+                                                    record.subject_id
+                                                ))
                                                 .inner
                                                 .get(&record.sub_project_id)
-                                                .expect(&format!("bad sub-project id {}", record.subject_id))
+                                                .expect(&format!(
+                                                    "bad sub-project id {}",
+                                                    record.subject_id
+                                                ))
                                                 .name
                                                 .clone(),
                                             duration: record.get_duration(),
@@ -667,15 +678,25 @@ impl Frontend {
                                         Summary {
                                             title: self
                                                 .backend
-                                                .projects.inner
+                                                .projects
+                                                .inner
                                                 .get(&record.project_id)
-                                                .expect(&format!("bad project id {}", record.subject_id))
+                                                .expect(&format!(
+                                                    "bad project id {}",
+                                                    record.subject_id
+                                                ))
                                                 .inner
                                                 .get(&record.sub_project_id)
-                                                .expect(&format!("bad sub-project id {}", record.subject_id))
+                                                .expect(&format!(
+                                                    "bad sub-project id {}",
+                                                    record.subject_id
+                                                ))
                                                 .inner
                                                 .get(&record.subject_id)
-                                                .expect(&format!("bad subject id {}", record.subject_id))
+                                                .expect(&format!(
+                                                    "bad subject id {}",
+                                                    record.subject_id
+                                                ))
                                                 .lock()
                                                 .unwrap()
                                                 .name
@@ -717,7 +738,8 @@ impl Frontend {
                         ui.add_space(215.);
 
                         ui.vertical(|ui| {
-                            let mut c: Vec<(&Uuid, &Summary)> = sub_projects_summary.iter().collect();
+                            let mut c: Vec<(&Uuid, &Summary)> =
+                                sub_projects_summary.iter().collect();
                             c.sort_by(|a, b| a.1.duration.cmp(&b.1.duration));
 
                             for v in c {
@@ -974,10 +996,8 @@ impl Frontend {
                                                 .get(&record.project_id)
                                                 .unwrap();
 
-                                            let sub_project = project
-                                                .inner
-                                                .get(&record.sub_project_id)
-                                                .unwrap();
+                                            let sub_project =
+                                                project.inner.get(&record.sub_project_id).unwrap();
 
                                             let subject = sub_project
                                                 .inner
@@ -1111,7 +1131,6 @@ impl Frontend {
             Uuid::new_v4()
         };
 
-
         let c = current_project.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
 
         ui.vertical(|ui| {
@@ -1131,7 +1150,9 @@ impl Frontend {
                         self.backend.set_current_sub_project(Some(sub_project.id));
                     }
 
-                    ui.label(format_duration(self.backend.get_sub_project_time(&sub_project.id).unwrap()));
+                    ui.label(format_duration(
+                        self.backend.get_sub_project_time(&sub_project.id).unwrap(),
+                    ));
                 });
 
                 ui.add_space(5.0);
@@ -1153,10 +1174,13 @@ impl Frontend {
             Uuid::new_v4()
         };
 
-        let c = self.backend.projects.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
+        let c = self
+            .backend
+            .projects
+            .get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
 
         ui.vertical(|ui| {
-            for project in c{
+            for project in c {
                 if project.is_deleted {
                     continue;
                 }
@@ -1172,7 +1196,9 @@ impl Frontend {
                         self.backend.set_current_project(Some(project.id));
                     }
 
-                    ui.label(format_duration(self.backend.get_project_time(&project.id).unwrap()));
+                    ui.label(format_duration(
+                        self.backend.get_project_time(&project.id).unwrap(),
+                    ));
                 });
 
                 ui.add_space(5.0);
@@ -1198,7 +1224,12 @@ impl Frontend {
             Uuid::new_v4()
         };
 
-        let c = current_sub_project.get_inner_sorted(|a, b| a.lock().unwrap().created_at.cmp(&b.lock().unwrap().created_at));
+        let c = current_sub_project.get_inner_sorted(|a, b| {
+            a.lock()
+                .unwrap()
+                .created_at
+                .cmp(&b.lock().unwrap().created_at)
+        });
 
         ui.vertical(|ui| {
             for subject in c {
@@ -1335,7 +1366,10 @@ impl Frontend {
             Uuid::new_v4()
         };
 
-        let c = self.backend.todos.get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
+        let c = self
+            .backend
+            .todos
+            .get_inner_sorted(|a, b| a.created_at.cmp(&b.created_at));
 
         ui.vertical(|ui| {
             for project in c {
@@ -1363,7 +1397,6 @@ impl Frontend {
             }
         });
     }
-
 
     fn todo_build_sub_projects(&mut self, ui: &mut Ui) {
         ui.set_min_width(300.0);
@@ -1395,7 +1428,8 @@ impl Frontend {
                     }
 
                     if ui.button(text).clicked() {
-                        self.backend.set_current_todo_sub_project(Some(sub_project.id));
+                        self.backend
+                            .set_current_todo_sub_project(Some(sub_project.id));
                     }
                 });
 
@@ -1416,8 +1450,12 @@ impl Frontend {
             return;
         };
 
-
-        let c = current_todo_sub_project.get_inner_sorted(|a, b| a.lock().unwrap().created_at.cmp(&b.lock().unwrap().created_at));
+        let c = current_todo_sub_project.get_inner_sorted(|a, b| {
+            a.lock()
+                .unwrap()
+                .created_at
+                .cmp(&b.lock().unwrap().created_at)
+        });
 
         ui.vertical(|ui| {
             for subject in c {
